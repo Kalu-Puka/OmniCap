@@ -291,7 +291,7 @@ export default function App() {
 
     try {
       const SAMPLE_RATE = 16000;
-      const CHUNK_DURATION_SEC = 240; // 4 minutes
+      const CHUNK_DURATION_SEC = 60; // 1 minute (prevents long transcription response latency and timeouts)
       const OVERLAP_SEC = 2; // 2 seconds overlap
 
       const CHUNK_SIZE = CHUNK_DURATION_SEC * SAMPLE_RATE;
@@ -345,15 +345,47 @@ export default function App() {
         const wavBlob = encodeWAV(chunkAudio, SAMPLE_RATE);
         const base64Data = await readBlobAsBase64(wavBlob);
 
-        const response = await fetch("/api/transcribe-cloud", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            audio: base64Data,
-            mimeType: "audio/wav",
-            userApiKey: geminiApiKey || undefined,
-          }),
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 50000);
+
+        let elapsedSeconds = 0;
+        const progressInterval = setInterval(() => {
+          elapsedSeconds++;
+          let message = `Transcribing audio segment ${i + 1} of ${chunks.length} via Gemini AI...`;
+          if (elapsedSeconds >= 30) {
+            message = "This is taking unusually long. If it doesn't finish soon, it may time out and you can retry.";
+          } else if (elapsedSeconds >= 15) {
+            message = "Taking a bit longer than usual, please wait...";
+          } else if (elapsedSeconds >= 5) {
+            message = "Still working — Gemini is processing your audio...";
+          }
+          setTranscriptionStatus(prev => ({
+            ...prev,
+            message
+          }));
+        }, 1000);
+
+        let response;
+        try {
+          response = await fetch("/api/transcribe-cloud", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              audio: base64Data,
+              mimeType: "audio/wav",
+              userApiKey: geminiApiKey || undefined,
+            }),
+            signal: controller.signal,
+          });
+        } catch (fetchErr: any) {
+          if (fetchErr.name === "AbortError") {
+            throw new Error("The transcription request timed out. This can happen during high server demand. Please try again.");
+          }
+          throw fetchErr;
+        } finally {
+          clearInterval(progressInterval);
+          clearTimeout(timeoutId);
+        }
 
         const data = await response.json();
         if (!response.ok || data.error) {

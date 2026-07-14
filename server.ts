@@ -138,7 +138,7 @@ ${JSON.stringify(segmentsInput, null, 2)}`,
       console.log("[OmniCap Server] Sending audio chunk to Gemini for transcription...");
 
       const callWithRetry = async (modelName: string): Promise<any> => {
-        const maxAttempts = 3;
+        const maxAttempts = 2;
         let attempt = 0;
         while (attempt < maxAttempts) {
           attempt++;
@@ -151,12 +151,12 @@ ${JSON.stringify(segmentsInput, null, 2)}`,
                 {
                   text: "Analyze the provided audio track. Transcribe it completely and accurately into Sinhala (Sri Lanka) text.\n" +
                         "Break the transcription down into small, readable subtitle segments (each segment should usually be 2 to 7 seconds long).\n" +
-                        "For each segment, output the start and end timestamps in seconds, the text, and split the segment's words into individual word-level timings with start/end times.\n" +
+                        "For each segment, output the start and end timestamps in seconds, and the text.\n" +
                         "Ensure that the timestamps are highly accurate and align perfectly with when the words are spoken in the audio."
                 }
               ],
               config: {
-                systemInstruction: "You are an expert audio transcriptionist for the Sinhala language. You specialize in generating perfectly-timed subtitle segments with character-level or word-level timings in JSON format.",
+                systemInstruction: "You are an expert audio transcriptionist for the Sinhala language. You specialize in generating perfectly-timed subtitle segments in JSON format.",
                 responseMimeType: "application/json",
                 responseSchema: {
                   type: Type.ARRAY,
@@ -165,20 +165,7 @@ ${JSON.stringify(segmentsInput, null, 2)}`,
                     properties: {
                       start: { type: Type.NUMBER, description: "Start time of the segment in seconds" },
                       end: { type: Type.NUMBER, description: "End time of the segment in seconds" },
-                      text: { type: Type.STRING, description: "The transcribed Sinhala text" },
-                      words: {
-                        type: Type.ARRAY,
-                        items: {
-                          type: Type.OBJECT,
-                          properties: {
-                            text: { type: Type.STRING },
-                            start: { type: Type.NUMBER },
-                            end: { type: Type.NUMBER }
-                          },
-                          required: ["text", "start", "end"]
-                        },
-                        description: "Optional word-level timings within this segment"
-                      }
+                      text: { type: Type.STRING, description: "The transcribed Sinhala text" }
                     },
                     required: ["start", "end", "text"]
                   }
@@ -223,12 +210,12 @@ ${JSON.stringify(segmentsInput, null, 2)}`,
               {
                 text: "Analyze the provided audio track. Transcribe it completely and accurately into Sinhala (Sri Lanka) text.\n" +
                       "Break the transcription down into small, readable subtitle segments (each segment should usually be 2 to 7 seconds long).\n" +
-                      "For each segment, output the start and end timestamps in seconds, the text, and split the segment's words into individual word-level timings with start/end times.\n" +
+                      "For each segment, output the start and end timestamps in seconds, and the text.\n" +
                       "Ensure that the timestamps are highly accurate and align perfectly with when the words are spoken in the audio."
               }
             ],
             config: {
-              systemInstruction: "You are an expert audio transcriptionist for the Sinhala language. You specialize in generating perfectly-timed subtitle segments with character-level or word-level timings in JSON format.",
+              systemInstruction: "You are an expert audio transcriptionist for the Sinhala language. You specialize in generating perfectly-timed subtitle segments in JSON format.",
               responseMimeType: "application/json",
               responseSchema: {
                 type: Type.ARRAY,
@@ -237,20 +224,7 @@ ${JSON.stringify(segmentsInput, null, 2)}`,
                   properties: {
                     start: { type: Type.NUMBER, description: "Start time of the segment in seconds" },
                     end: { type: Type.NUMBER, description: "End time of the segment in seconds" },
-                    text: { type: Type.STRING, description: "The transcribed Sinhala text" },
-                    words: {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.OBJECT,
-                        properties: {
-                          text: { type: Type.STRING },
-                          start: { type: Type.NUMBER },
-                          end: { type: Type.NUMBER }
-                        },
-                        required: ["text", "start", "end"]
-                      },
-                      description: "Optional word-level timings within this segment"
-                    }
+                    text: { type: Type.STRING, description: "The transcribed Sinhala text" }
                   },
                   required: ["start", "end", "text"]
                 }
