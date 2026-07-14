@@ -31,7 +31,7 @@ export async function exportVideoClientSide({
     // 1. Create temporary video element to play back the video
     const video = document.createElement("video");
     video.src = URL.createObjectURL(videoFile);
-    video.muted = false;
+    video.muted = true;
     video.playsInline = true;
 
     // We keep a clean pointer to clean up object URLs
@@ -93,14 +93,8 @@ export async function exportVideoClientSide({
       const source = audioCtx.createMediaElementSource(video);
       const audioDestination = audioCtx.createMediaStreamDestination();
 
-      // Connect source to BOTH the audio recorder destination and the speaker (so user could hear or monitor, or keep muted)
+      // Connect source only to the audio recorder destination to avoid duplicate playback and speaker leakage
       source.connect(audioDestination);
-      
-      // We also connect to hardware audio output so Web Audio stays active,
-      // but we keep the video volume at 0.05 or let it play back.
-      // To prevent duplicate echo we can connect a gain node or just destination.
-      source.connect(audioCtx.destination);
-      video.volume = 0.05; // Quiet monitoring during high-speed export
 
       // 3. Capture video and audio tracks
       const canvasStream = canvas.captureStream(30); // 30 FPS stream

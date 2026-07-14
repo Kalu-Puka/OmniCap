@@ -52,9 +52,7 @@ export default function App() {
   const [segments, setSegments] = useState<CaptionSegment[]>([]);
 
   // Transcription States
-  const [modelSize, setModelSize] = useState<"fast" | "accurate">("fast");
-  const [customModelId, setCustomModelId] = useState<string>("");
-  const [useCustomModel, setUseCustomModel] = useState<boolean>(false);
+  const [extractedAudio, setExtractedAudio] = useState<Float32Array | null>(null);
   const [extractionProgress, setExtractionProgress] = useState<number>(0);
   const [loadingStatus, setLoadingStatus] = useState<{ progress: number; message: string }>({ progress: 0, message: "" });
   const [transcriptionStatus, setTranscriptionStatus] = useState<{ progress: number; message: string }>({ progress: 0, message: "" });
@@ -70,9 +68,8 @@ export default function App() {
   // Monetization Scaffold
   const [isPro, setIsPro] = useState<boolean>(false);
 
-  // BYO Gemini API Key & Transcription engine preference
+  // BYO Gemini API Key
   const [geminiApiKey, setGeminiApiKey] = useState<string>(() => localStorage.getItem("omnicap_gemini_api_key") || "");
-  const [transcriptionEngine, setTranscriptionEngine] = useState<"local" | "cloud">("local");
 
   const handleApiKeyChange = (val: string) => {
     setGeminiApiKey(val);
@@ -96,7 +93,6 @@ export default function App() {
   // DOM / Audio element references
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const whisperWorkerRef = useRef<Worker | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
   // 1. Load preferences from IndexedDB on startup
@@ -116,61 +112,6 @@ export default function App() {
     }
     loadSavedState().catch(console.error);
   }, []);
-
-  // 2. Setup Whisper Web Worker
-  useEffect(() => {
-    // Vite Web Worker compilation syntax
-    whisperWorkerRef.current = new Worker(
-      new URL("./workers/whisper.worker.ts", import.meta.url),
-      { type: "module" }
-    );
-
-    whisperWorkerRef.current.onmessage = (event) => {
-      const { status, progress, message, segments: rawSegments, error } = event.data;
-
-      if (status === "loading") {
-        setLoadingStatus({ progress, message });
-      } else if (status === "ready") {
-        setLoadingStatus({ progress: 100, message: "Model weights downloaded!" });
-        // Trigger actual transcription since model is now loaded
-        triggerASR();
-      } else if (status === "transcribing") {
-        setTranscriptionStatus({ progress, message });
-      } else if (status === "completed") {
-        // Construct clean caption segments with character proportional word-level timings
-        const formatted = rawSegments.map((seg: any, idx: number) => {
-          const id = `seg_${Date.now()}_${idx}`;
-          const wordTimings = generateWordTimings(seg.text, seg.start, seg.end);
-          return {
-            id,
-            start: parseFloat(seg.start.toFixed(2)),
-            end: parseFloat(seg.end.toFixed(2)),
-            text: seg.text,
-            words: wordTimings,
-          };
-        });
-        setSegments(formatted);
-        setStep("editor");
-      } else if (status === "error") {
-        setErrorMsg(message || "An unexpected error occurred during transcription.");
-        // Fallback to empty segment so user doesn't get stuck
-        setSegments([
-          {
-            id: `seg_${Date.now()}_empty`,
-            start: 0,
-            end: Math.min(10, videoDuration || 10),
-            text: "ස්වයංක්‍රීය උපසිරැසි සැකසීම අසාර්ථක විය. මෙහි ලියන්න.",
-            words: generateWordTimings("ස්වයංක්‍රීය උපසිරැසි සැකසීම අසාර්ථක විය. මෙහි ලියන්න.", 0, 5)
-          }
-        ]);
-        setStep("editor");
-      }
-    };
-
-    return () => {
-      whisperWorkerRef.current?.terminate();
-    };
-  }, [videoDuration]);
 
   // Save styles to DB upon edits
   const updateStyle = (newStyle: Partial<CaptionStyle>) => {
@@ -244,141 +185,159 @@ export default function App() {
     return new Blob([view], { type: "audio/wav" });
   };
 
-  // 3. Audio Extraction and Whisper Trigger Sequence
+  // 3. Audio Extraction and Cloud Chunked Transcription Sequence
   const handleStartCaptioning = async () => {
     if (!videoBytes || !videoFile) return;
     setErrorMsg("");
-    setStep("extracting");
+
+    let rawAudio = extractedAudio;
+    if (!rawAudio) {
+      setStep("extracting");
+      try {
+        // Step A: Extract audio track to Float32Array at 16kHz mono natively in browser
+        rawAudio = await extractAudioFromArrayBuffer(videoBytes, (p) => {
+          setExtractionProgress(p);
+        });
+        setExtractedAudio(rawAudio);
+      } catch (err: any) {
+        console.error(err);
+        setErrorMsg(err.message || "Failed to extract video audio.");
+        setStep("upload");
+        return;
+      }
+    }
+
+    setStep("transcribing");
+    setTranscriptionStatus({ progress: 10, message: "Preparing audio segments for Gemini..." });
 
     try {
-      // Step A: Extract audio track to Float32Array at 16kHz mono natively in browser
-      const rawAudio = await extractAudioFromArrayBuffer(videoBytes, (p) => {
-        setExtractionProgress(p);
-      });
+      const SAMPLE_RATE = 16000;
+      const CHUNK_DURATION_SEC = 240; // 4 minutes
+      const OVERLAP_SEC = 2; // 2 seconds overlap
 
-      if (transcriptionEngine === "cloud") {
-        setStep("transcribing");
-        setTranscriptionStatus({ progress: 15, message: "Encoding audio track into standard WAV format..." });
+      const CHUNK_SIZE = CHUNK_DURATION_SEC * SAMPLE_RATE;
+      const OVERLAP_SIZE = OVERLAP_SEC * SAMPLE_RATE;
+      const STEP_SIZE = CHUNK_SIZE - OVERLAP_SIZE;
+
+      const chunks = [];
+      let startSample = 0;
+      while (startSample < rawAudio.length) {
+        const endSample = Math.min(startSample + CHUNK_SIZE, rawAudio.length);
+        const chunkAudio = rawAudio.subarray(startSample, endSample);
+        const startSec = startSample / SAMPLE_RATE;
+        const isLast = endSample === rawAudio.length;
+        chunks.push({
+          audio: chunkAudio,
+          startSec,
+          isLast,
+        });
+        if (endSample === rawAudio.length) {
+          break;
+        }
+        startSample += STEP_SIZE;
+      }
+
+      const allSegments: CaptionSegment[] = [];
+      let segmentCounter = 0;
+
+      const readBlobAsBase64 = (blob: Blob): Promise<string> => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64 = (reader.result as string).split(",")[1];
+            resolve(base64);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      };
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const { audio: chunkAudio, startSec, isLast } = chunk;
+
+        const progressPct = Math.round(15 + (i / chunks.length) * 75);
+        setTranscriptionStatus({
+          progress: progressPct,
+          message: `Transcribing audio segment ${i + 1} of ${chunks.length} via Gemini AI...`
+        });
 
         // Encode Float32Array to standard WAV format
-        const wavBlob = encodeWAV(rawAudio, 16000);
-        setTranscriptionStatus({ progress: 30, message: "Synthesizing sound frequencies for Gemini AI..." });
+        const wavBlob = encodeWAV(chunkAudio, SAMPLE_RATE);
+        const base64Data = await readBlobAsBase64(wavBlob);
 
-        // Convert Blob to Base64
-        const reader = new FileReader();
-        reader.onloadend = async () => {
-          try {
-            const base64Data = (reader.result as string).split(",")[1];
-            setTranscriptionStatus({ progress: 50, message: "Uploading sound signature to Gemini Cloud..." });
+        const response = await fetch("/api/transcribe-cloud", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            audio: base64Data,
+            mimeType: "audio/wav",
+            userApiKey: geminiApiKey || undefined,
+          }),
+        });
 
-            const response = await fetch("/api/transcribe-cloud", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                audio: base64Data,
-                mimeType: "audio/wav",
-                userApiKey: geminiApiKey || undefined,
-              }),
-            });
+        const data = await response.json();
+        if (data.error) throw new Error(data.error);
 
-            const data = await response.json();
-            if (data.error) throw new Error(data.error);
+        if (!data.segments || !Array.isArray(data.segments)) {
+          throw new Error(`Invalid response format for segment ${i + 1}.`);
+        }
 
-            if (!data.segments || !Array.isArray(data.segments)) {
-              throw new Error("Invalid response format from cloud transcriber.");
+        const filteredSegments = data.segments.filter((seg: any) => {
+          const relStart = parseFloat(seg.start);
+          const relEnd = parseFloat(seg.end);
+
+          // If first chunk, filter right side if not the only chunk
+          if (i === 0) {
+            if (chunks.length > 1) {
+              return relEnd < (CHUNK_DURATION_SEC - OVERLAP_SEC / 2);
             }
-
-            setTranscriptionStatus({ progress: 90, message: "Formatting caption timeline segments..." });
-
-            // Construct segments matching CaptionSegment[] format
-            const formatted = data.segments.map((seg: any, idx: number) => {
-              const id = `seg_cloud_${Date.now()}_${idx}`;
-              
-              // Ensure word timings are present, or fallback to auto-generated word-level timings
-              const wordTimings = seg.words && Array.isArray(seg.words) && seg.words.length > 0
-                ? seg.words.map((w: any) => ({
-                    text: w.text,
-                    start: parseFloat(w.start),
-                    end: parseFloat(w.end),
-                  }))
-                : generateWordTimings(seg.text, parseFloat(seg.start), parseFloat(seg.end));
-
-              return {
-                id,
-                start: parseFloat(parseFloat(seg.start).toFixed(2)),
-                end: parseFloat(parseFloat(seg.end).toFixed(2)),
-                text: seg.text,
-                words: wordTimings,
-              };
-            });
-
-            setSegments(formatted);
-            setStep("editor");
-          } catch (cloudErr: any) {
-            console.error("Cloud transcription failed, falling back:", cloudErr);
-            setErrorMsg(`Gemini cloud transcription failed: ${cloudErr.message || "Unknown error"}. Falling back to offline Whisper.`);
-            // Seamlessly fallback to offline Whisper ASR
-            setTranscriptionEngine("local");
-            triggerLocalWhisper(rawAudio);
+            return true;
           }
-        };
-        reader.readAsDataURL(wavBlob);
-      } else {
-        triggerLocalWhisper(rawAudio);
+
+          // If middle/last chunk, filter left side
+          const keepLeft = relStart >= (OVERLAP_SEC / 2);
+          if (!keepLeft) return false;
+
+          // Filter right side if middle chunk
+          if (!isLast) {
+            return relEnd < (CHUNK_DURATION_SEC - OVERLAP_SEC / 2);
+          }
+          return true;
+        });
+
+        filteredSegments.forEach((seg: any) => {
+          const id = `seg_cloud_${Date.now()}_${segmentCounter++}`;
+          const absoluteStart = startSec + parseFloat(seg.start);
+          const absoluteEnd = startSec + parseFloat(seg.end);
+
+          // Word timings mapping & offset
+          const wordTimings = seg.words && Array.isArray(seg.words) && seg.words.length > 0
+            ? seg.words.map((w: any) => ({
+                text: w.text,
+                start: parseFloat((startSec + parseFloat(w.start)).toFixed(2)),
+                end: parseFloat((startSec + parseFloat(w.end)).toFixed(2)),
+              }))
+            : generateWordTimings(seg.text, absoluteStart, absoluteEnd);
+
+          allSegments.push({
+            id,
+            start: parseFloat(absoluteStart.toFixed(2)),
+            end: parseFloat(absoluteEnd.toFixed(2)),
+            text: seg.text,
+            words: wordTimings,
+          });
+        });
       }
-    } catch (err: any) {
-      console.error(err);
-      setErrorMsg(err.message || "Failed to extract video audio.");
+
+      setTranscriptionStatus({ progress: 95, message: "Finalizing subtitle sequence..." });
+      setSegments(allSegments);
+      setStep("editor");
+    } catch (cloudErr: any) {
+      console.error("Cloud transcription failed:", cloudErr);
+      setErrorMsg(`Gemini cloud transcription failed: ${cloudErr.message || "Unknown error"}. Please check your internet connection or API key and try again.`);
       setStep("upload");
     }
-  };
-
-  const triggerLocalWhisper = (rawAudio: Float32Array) => {
-    setStep("transcribing");
-
-    const targetModelId = useCustomModel
-      ? customModelId
-      : modelSize === "fast"
-      ? "onnx-community/whisper-tiny"
-      : "onnx-community/whisper-small";
-
-    setLoadingStatus({ progress: 0, message: "Locating Whisper model weights..." });
-
-    // Tell worker to load model
-    whisperWorkerRef.current?.postMessage({
-      command: "load",
-      modelId: targetModelId,
-    });
-
-    // Store audio data temporarily in a ref to trigger when worker reports "ready"
-    (window as any).__tempAudio = rawAudio;
-  };
-
-  const triggerASR = () => {
-    const audioData = (window as any).__tempAudio;
-    if (!audioData) {
-      setErrorMsg("Decoded audio data was cleared. Please try uploading again.");
-      setStep("upload");
-      return;
-    }
-
-    setTranscriptionStatus({ progress: 0, message: "Sending sound frequencies to Whisper model..." });
-
-    // Send audio buffer to Whisper worker using Transferables for near-instant memory transfer
-    whisperWorkerRef.current?.postMessage(
-      {
-        command: "transcribe",
-        audioData: audioData,
-        options: {
-          language: "si",
-          task: "transcribe",
-        },
-      },
-      [audioData.buffer]
-    );
-
-    // Clear temp buffer
-    delete (window as any).__tempAudio;
   };
 
   // 4. Video scrubbing and playback canvas loop
@@ -458,6 +417,7 @@ export default function App() {
     setPlaybackProgress((video.currentTime / videoDuration) * 100);
 
     if (!video.paused && !video.ended) {
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = requestAnimationFrame(runPreviewLoop);
     }
   };
@@ -473,12 +433,26 @@ export default function App() {
             document.fonts.load(`12px "${style.fontFamily}"`),
             document.fonts.load(`bold 12px "${style.fontFamily}"`)
           ]);
-          console.log("Preloaded font family successfully:", style.fontFamily);
+
+          // Warm-up font rasterization in DOM
+          const span = document.createElement("span");
+          span.textContent = "OmniCap Font Warm-up";
+          span.style.fontFamily = `"${style.fontFamily}"`;
+          span.style.position = "absolute";
+          span.style.left = "-9999px";
+          span.style.top = "-9999px";
+          span.style.visibility = "hidden";
+          document.body.appendChild(span);
+          const _unused = span.offsetWidth; // Force rendering engine to calculate layout & rasterize
+          document.body.removeChild(span);
+
+          console.log("Preloaded and warmed up font family successfully:", style.fontFamily);
           
           // Trigger a single frame render to update current view if paused
           if (step === "editor" && !isPlaying) {
             setTimeout(() => {
-              runPreviewLoop();
+              if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+              animationFrameRef.current = requestAnimationFrame(runPreviewLoop);
             }, 50);
           }
         } catch (err) {
@@ -496,10 +470,14 @@ export default function App() {
     if (isPlaying) {
       video.pause();
       setIsPlaying(false);
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
     } else {
       video.play().then(() => {
         setIsPlaying(true);
+        if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = requestAnimationFrame(runPreviewLoop);
       }).catch(console.error);
     }
@@ -523,12 +501,17 @@ export default function App() {
     setPlaybackProgress(pct);
 
     // Refresh canvas instantly on scrub
-    requestAnimationFrame(runPreviewLoop);
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    animationFrameRef.current = requestAnimationFrame(runPreviewLoop);
   };
 
-  // Re-draw canvas immediately when styling/crop configs change
+  // Re-draw canvas immediately when styling/crop configs change, canceling existing animation loops
   useEffect(() => {
-    requestAnimationFrame(runPreviewLoop);
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    animationFrameRef.current = requestAnimationFrame(runPreviewLoop);
+    return () => {
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    };
   }, [style, cropMode, aspectRatio, showTranslation, segments, isPro]);
 
   // 5. File Drag & Drop
@@ -884,8 +867,7 @@ export default function App() {
                   Auto-Caption Sinhala Videos
                 </h2>
                 <p className="text-zinc-400 text-sm max-w-lg mx-auto">
-                  Powered by offline, in-browser Whisper ASR. Your video files and recordings are
-                  processed entirely on-device, preserving total privacy.
+                  Powered by Gemini Cloud AI. Enjoy super fast, highly accurate, and intelligent multi-modal transcription of your Sinhala videos.
                 </p>
               </div>
 
@@ -933,141 +915,58 @@ export default function App() {
                     </span>
                   </div>
 
-                  <div className="space-y-4">
-                    {/* Transcription Engine Selection */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-zinc-400 block">Transcription Engine</label>
-                      <div className="flex bg-zinc-900 p-1 border border-zinc-800 rounded-xl space-x-1">
-                        <button
-                          onClick={() => setTranscriptionEngine("local")}
-                          className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                            transcriptionEngine === "local"
-                              ? "bg-zinc-800 text-yellow-400 shadow"
-                              : "text-zinc-400 hover:text-white"
-                          }`}
-                        >
-                          Offline Whisper (Local)
-                        </button>
-                        <button
-                          onClick={() => setTranscriptionEngine("cloud")}
-                          className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                            transcriptionEngine === "cloud"
-                              ? "bg-zinc-800 text-yellow-400 shadow"
-                              : "text-zinc-400 hover:text-white"
-                          }`}
-                        >
-                          Gemini Cloud (Instant)
-                        </button>
-                      </div>
-                    </div>
-
-                    {transcriptionEngine === "local" ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* Model Size Toggle */}
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-bold text-zinc-400 block">ASR Whisper Size</label>
-                          <div className="flex bg-zinc-900 p-1 border border-zinc-800 rounded-xl space-x-1">
-                            <button
-                              onClick={() => setModelSize("fast")}
-                              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                                modelSize === "fast" && !useCustomModel
-                                  ? "bg-zinc-800 text-yellow-400 shadow"
-                                  : "text-zinc-400 hover:text-white"
-                              }`}
-                            >
-                              Fast (Tiny)
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (!isPro) {
-                                  alert("👑 Accurate model requires Pro Mode! Toggle Pro Mode in the header to unlock.");
-                                  return;
-                                }
-                                setModelSize("accurate");
-                                setUseCustomModel(false);
-                              }}
-                              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center space-x-1 ${
-                                modelSize === "accurate" && !useCustomModel
-                                  ? "bg-zinc-800 text-yellow-400 shadow"
-                                  : "text-zinc-400 hover:text-white"
-                              }`}
-                            >
-                              <span>Accurate (Small)</span>
-                              {!isPro && <Award size={10} className="text-zinc-500" />}
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Custom Model Toggle */}
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-bold text-zinc-400 block">Custom HF Model</label>
-                          <div className="flex items-center space-x-2 pt-2">
-                            <input
-                              type="checkbox"
-                              id="custom-model-toggle"
-                              checked={useCustomModel}
-                              onChange={(e) => setUseCustomModel(e.target.checked)}
-                              className="rounded border-zinc-800 text-yellow-500 focus:ring-yellow-500 bg-zinc-900 h-4 w-4"
-                            />
-                            <label htmlFor="custom-model-toggle" className="text-xs font-semibold text-zinc-300">
-                              Use fine-tuned Sinhala model
-                            </label>
-                          </div>
+                  {errorMsg && (
+                    <div className="bg-red-950/20 border border-red-900/40 text-red-200 text-xs px-4 py-3 rounded-xl flex flex-col space-y-3">
+                      <div className="flex items-start space-x-2">
+                        <span className="text-red-400 font-bold text-sm leading-none mt-0.5 shrink-0">⚠️</span>
+                        <div className="flex-1">
+                          <p className="font-bold">Transcription Failed</p>
+                          <p className="opacity-90">{errorMsg}</p>
                         </div>
                       </div>
-                    ) : (
-                      <motion.div
-                        initial={{ opacity: 0, y: -5 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="space-y-3 p-4 bg-zinc-950/40 border border-zinc-800/80 rounded-2xl"
+                      <button
+                        onClick={handleStartCaptioning}
+                        className="bg-red-900/40 hover:bg-red-900/60 border border-red-700/50 text-white font-bold text-xs py-1.5 px-3 rounded-lg transition-colors self-end flex items-center space-x-1"
                       >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-zinc-300 flex items-center space-x-1.5">
-                            <Sparkles size={13} className="text-yellow-400 animate-pulse" />
-                            <span>Gemini Cloud Transcription Options</span>
-                          </span>
-                          <span className="text-[10px] text-zinc-500 px-1.5 py-0.5 bg-zinc-900 border border-zinc-800 rounded-md">
-                            Super Fast & Cloud Grounded
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-zinc-400 leading-relaxed">
-                          For instant transcription of longer videos or lower-powered devices, OmniCap uses our lightning-fast Express backend powered by Gemini 3.5.
-                        </p>
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between">
-                            <label className="text-xs font-bold text-zinc-400 block">Bring-Your-Own Gemini API Key (Optional)</label>
-                            <span className="text-[10px] text-zinc-500 italic">Saved locally</span>
-                          </div>
-                          <input
-                            type="password"
-                            placeholder="AIzaSy... (leave empty to use server default key)"
-                            value={geminiApiKey}
-                            onChange={(e) => handleApiKeyChange(e.target.value)}
-                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono text-zinc-300 focus:ring-1 focus:ring-yellow-500 focus:outline-none"
-                          />
-                        </div>
-                      </motion.div>
-                    )}
-                  </div>
+                        <RefreshCw size={12} className="animate-spin-hover mr-1" />
+                        <span>Retry</span>
+                      </button>
+                    </div>
+                  )}
 
-                  {transcriptionEngine === "local" && useCustomModel && (
+                  <div className="space-y-4">
                     <motion.div
                       initial={{ opacity: 0, y: -5 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="space-y-1.5"
+                      className="space-y-3 p-4 bg-zinc-950/40 border border-zinc-800/80 rounded-2xl"
                     >
-                      <label className="text-xs font-bold text-zinc-400 block">
-                        Hugging Face ONNX Repository ID
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Subhaka/whisper-small-Sinhala-Fine_Tune-onnx"
-                        value={customModelId}
-                        onChange={(e) => setCustomModelId(e.target.value)}
-                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono text-zinc-300 focus:ring-1 focus:ring-yellow-500 focus:outline-none"
-                      />
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-zinc-300 flex items-center space-x-1.5">
+                          <Sparkles size={13} className="text-yellow-400 animate-pulse" />
+                          <span>Gemini Cloud Transcription Options</span>
+                        </span>
+                        <span className="text-[10px] text-zinc-500 px-1.5 py-0.5 bg-zinc-900 border border-zinc-800 rounded-md">
+                          Super Fast & Cloud Grounded
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-400 leading-relaxed">
+                        For instant, highly accurate transcription of your videos, OmniCap uses our lightning-fast Express backend powered by Gemini 3.5.
+                      </p>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-zinc-400 block">Bring-Your-Own Gemini API Key (Optional)</label>
+                          <span className="text-[10px] text-zinc-500 italic">Saved locally</span>
+                        </div>
+                        <input
+                          type="password"
+                          placeholder="AIzaSy... (leave empty to use server default key)"
+                          value={geminiApiKey}
+                          onChange={(e) => handleApiKeyChange(e.target.value)}
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono text-zinc-300 focus:ring-1 focus:ring-yellow-500 focus:outline-none"
+                        />
+                      </div>
                     </motion.div>
-                  )}
+                  </div>
 
                   <button
                     onClick={handleStartCaptioning}
@@ -1138,29 +1037,12 @@ export default function App() {
               <div className="space-y-2">
                 <h3 className="text-lg font-bold">ASR Speech-to-Text</h3>
                 <p className="text-xs text-zinc-400">
-                  Whisper is transcribing the audio samples. The very first run downloads model
-                  weights (~40MB - 120MB) and caches them in your browser for instant future loading.
+                  Gemini Cloud is transcribing the audio segments. Highly accurate Sinhala transcription is being generated dynamically.
                 </p>
               </div>
 
-              {/* Double Progress Bar Stack */}
+              {/* Progress Bar Stack */}
               <div className="space-y-4 border-t border-zinc-800/60 pt-4">
-                {/* Model Weights Download */}
-                <div className="space-y-1 text-left">
-                  <div className="flex justify-between text-xs font-bold text-zinc-300">
-                    <span className="truncate max-w-[200px]">
-                      {loadingStatus.message || "Model Download"}
-                    </span>
-                    <span className="text-zinc-500">{loadingStatus.progress}%</span>
-                  </div>
-                  <div className="w-full bg-zinc-900 rounded-full h-1.5 overflow-hidden">
-                    <div
-                      className="bg-purple-500 h-1.5 rounded-full transition-all duration-300"
-                      style={{ width: `${loadingStatus.progress}%` }}
-                    ></div>
-                  </div>
-                </div>
-
                 {/* Speech Processing Progress */}
                 <div className="space-y-1 text-left">
                   <div className="flex justify-between text-xs font-bold text-zinc-300">

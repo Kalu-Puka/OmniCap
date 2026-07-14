@@ -10,7 +10,7 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json({ limit: "10mb" }));
+  app.use(express.json({ limit: "100mb" }));
 
   // Cross-Origin Isolation Headers for WebAssembly and shared buffers
   app.use((req, res, next) => {
