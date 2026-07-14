@@ -69,6 +69,15 @@ export default function App() {
   // Monetization Scaffold
   const [isPro, setIsPro] = useState<boolean>(false);
 
+  // BYO Gemini API Key & Transcription engine preference
+  const [geminiApiKey, setGeminiApiKey] = useState<string>(() => localStorage.getItem("omnicap_gemini_api_key") || "");
+  const [transcriptionEngine, setTranscriptionEngine] = useState<"local" | "cloud">("local");
+
+  const handleApiKeyChange = (val: string) => {
+    setGeminiApiKey(val);
+    localStorage.setItem("omnicap_gemini_api_key", val);
+  };
+
   // Live Canvas Player Sync
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
@@ -184,6 +193,56 @@ export default function App() {
     set("omnicap_crop", val).catch(console.error);
   };
 
+  // WAV Encoder helpers for Gemini cloud transcription
+  const encodeWAV = (samples: Float32Array, sampleRate = 16000): Blob => {
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+
+    const writeString = (v: DataView, offset: number, string: string) => {
+      for (let i = 0; i < string.length; i++) {
+        v.setUint8(offset + i, string.charCodeAt(i));
+      }
+    };
+
+    const floatTo16BitPCM = (output: DataView, offset: number, input: Float32Array) => {
+      for (let i = 0; i < input.length; i++, offset += 2) {
+        let s = Math.max(-1, Math.min(1, input[i]));
+        output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      }
+    };
+
+    /* RIFF identifier */
+    writeString(view, 0, "RIFF");
+    /* file length */
+    view.setUint32(4, 36 + samples.length * 2, true);
+    /* RIFF type */
+    writeString(view, 8, "WAVE");
+    /* format chunk identifier */
+    writeString(view, 12, "fmt ");
+    /* format chunk length */
+    view.setUint32(16, 16, true);
+    /* sample format (raw) */
+    view.setUint16(20, 1, true);
+    /* channel count */
+    view.setUint16(22, 1, true);
+    /* sample rate */
+    view.setUint32(24, sampleRate, true);
+    /* byte rate (sample rate * block align) */
+    view.setUint32(28, sampleRate * 2, true);
+    /* block align (channel count * bytes per sample) */
+    view.setUint16(32, 2, true);
+    /* bits per sample */
+    view.setUint16(34, 16, true);
+    /* data chunk identifier */
+    writeString(view, 36, "data");
+    /* data chunk length */
+    view.setUint32(40, samples.length * 2, true);
+
+    floatTo16BitPCM(view, 44, samples);
+
+    return new Blob([view], { type: "audio/wav" });
+  };
+
   // 3. Audio Extraction and Whisper Trigger Sequence
   const handleStartCaptioning = async () => {
     if (!videoFile) return;
@@ -196,31 +255,102 @@ export default function App() {
         setExtractionProgress(p);
       });
 
-      // Keep reference of audio in a window property/ref to send to worker
-      setStep("transcribing");
+      if (transcriptionEngine === "cloud") {
+        setStep("transcribing");
+        setTranscriptionStatus({ progress: 15, message: "Encoding audio track into standard WAV format..." });
 
-      // Step B: Ask worker to load model and compile weights
-      const targetModelId = useCustomModel
-        ? customModelId
-        : modelSize === "fast"
-        ? "onnx-community/whisper-tiny"
-        : "onnx-community/whisper-small";
+        // Encode Float32Array to standard WAV format
+        const wavBlob = encodeWAV(rawAudio, 16000);
+        setTranscriptionStatus({ progress: 30, message: "Synthesizing sound frequencies for Gemini AI..." });
 
-      setLoadingStatus({ progress: 0, message: "Locating Whisper model weights..." });
+        // Convert Blob to Base64
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          try {
+            const base64Data = (reader.result as string).split(",")[1];
+            setTranscriptionStatus({ progress: 50, message: "Uploading sound signature to Gemini Cloud..." });
 
-      // Tell worker to load model
-      whisperWorkerRef.current?.postMessage({
-        command: "load",
-        modelId: targetModelId,
-      });
+            const response = await fetch("/api/transcribe-cloud", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                audio: base64Data,
+                mimeType: "audio/wav",
+                userApiKey: geminiApiKey || undefined,
+              }),
+            });
 
-      // We store audio data temporarily in a ref to trigger when worker reports "ready"
-      (window as any).__tempAudio = rawAudio;
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+
+            if (!data.segments || !Array.isArray(data.segments)) {
+              throw new Error("Invalid response format from cloud transcriber.");
+            }
+
+            setTranscriptionStatus({ progress: 90, message: "Formatting caption timeline segments..." });
+
+            // Construct segments matching CaptionSegment[] format
+            const formatted = data.segments.map((seg: any, idx: number) => {
+              const id = `seg_cloud_${Date.now()}_${idx}`;
+              
+              // Ensure word timings are present, or fallback to auto-generated word-level timings
+              const wordTimings = seg.words && Array.isArray(seg.words) && seg.words.length > 0
+                ? seg.words.map((w: any) => ({
+                    text: w.text,
+                    start: parseFloat(w.start),
+                    end: parseFloat(w.end),
+                  }))
+                : generateWordTimings(seg.text, parseFloat(seg.start), parseFloat(seg.end));
+
+              return {
+                id,
+                start: parseFloat(parseFloat(seg.start).toFixed(2)),
+                end: parseFloat(parseFloat(seg.end).toFixed(2)),
+                text: seg.text,
+                words: wordTimings,
+              };
+            });
+
+            setSegments(formatted);
+            setStep("editor");
+          } catch (cloudErr: any) {
+            console.error("Cloud transcription failed, falling back:", cloudErr);
+            setErrorMsg(`Gemini cloud transcription failed: ${cloudErr.message || "Unknown error"}. Falling back to offline Whisper.`);
+            // Seamlessly fallback to offline Whisper ASR
+            setTranscriptionEngine("local");
+            triggerLocalWhisper(rawAudio);
+          }
+        };
+        reader.readAsDataURL(wavBlob);
+      } else {
+        triggerLocalWhisper(rawAudio);
+      }
     } catch (err: any) {
       console.error(err);
       setErrorMsg(err.message || "Failed to extract video audio.");
       setStep("upload");
     }
+  };
+
+  const triggerLocalWhisper = (rawAudio: Float32Array) => {
+    setStep("transcribing");
+
+    const targetModelId = useCustomModel
+      ? customModelId
+      : modelSize === "fast"
+      ? "onnx-community/whisper-tiny"
+      : "onnx-community/whisper-small";
+
+    setLoadingStatus({ progress: 0, message: "Locating Whisper model weights..." });
+
+    // Tell worker to load model
+    whisperWorkerRef.current?.postMessage({
+      command: "load",
+      modelId: targetModelId,
+    });
+
+    // Store audio data temporarily in a ref to trigger when worker reports "ready"
+    (window as any).__tempAudio = rawAudio;
   };
 
   const triggerASR = () => {
@@ -330,6 +460,33 @@ export default function App() {
       animationFrameRef.current = requestAnimationFrame(runPreviewLoop);
     }
   };
+
+  // Pre-load current font family whenever it changes or when we enter editor/exporting steps
+  useEffect(() => {
+    async function loadFont() {
+      if (typeof document !== "undefined" && document.fonts && style.fontFamily) {
+        try {
+          await document.fonts.ready;
+          // Load normal and bold weights
+          await Promise.all([
+            document.fonts.load(`12px "${style.fontFamily}"`),
+            document.fonts.load(`bold 12px "${style.fontFamily}"`)
+          ]);
+          console.log("Preloaded font family successfully:", style.fontFamily);
+          
+          // Trigger a single frame render to update current view if paused
+          if (step === "editor" && !isPlaying) {
+            setTimeout(() => {
+              runPreviewLoop();
+            }, 50);
+          }
+        } catch (err) {
+          console.warn("Failed to load font explicitly:", err);
+        }
+      }
+    }
+    loadFont();
+  }, [style.fontFamily, step, isPlaying]);
 
   const handlePlayPause = () => {
     const video = videoRef.current;
@@ -578,6 +735,20 @@ export default function App() {
   // 8. Client-side Video Export Pipeline
   const handleExportVideo = async () => {
     if (!videoFile) return;
+
+    // Ensure all fonts are loaded before starting video export
+    if (typeof document !== "undefined" && document.fonts && style.fontFamily) {
+      try {
+        await document.fonts.ready;
+        await Promise.all([
+          document.fonts.load(`12px "${style.fontFamily}"`),
+          document.fonts.load(`bold 12px "${style.fontFamily}"`)
+        ]);
+      } catch (err) {
+        console.warn("Explicit font pre-load in export failed, continuing:", err);
+      }
+    }
+
     setStep("exporting");
     setExportProgress(0);
     setExportedBlob(null);
@@ -738,61 +909,124 @@ export default function App() {
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Model Size Toggle */}
+                  <div className="space-y-4">
+                    {/* Transcription Engine Selection */}
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-zinc-400 block">ASR Whisper Size</label>
+                      <label className="text-xs font-bold text-zinc-400 block">Transcription Engine</label>
                       <div className="flex bg-zinc-900 p-1 border border-zinc-800 rounded-xl space-x-1">
                         <button
-                          onClick={() => setModelSize("fast")}
+                          onClick={() => setTranscriptionEngine("local")}
                           className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                            modelSize === "fast" && !useCustomModel
+                            transcriptionEngine === "local"
                               ? "bg-zinc-800 text-yellow-400 shadow"
                               : "text-zinc-400 hover:text-white"
                           }`}
                         >
-                          Fast (Tiny)
+                          Offline Whisper (Local)
                         </button>
                         <button
-                          onClick={() => {
-                            if (!isPro) {
-                              alert("👑 Accurate model requires Pro Mode! Toggle Pro Mode in the header to unlock.");
-                              return;
-                            }
-                            setModelSize("accurate");
-                            setUseCustomModel(false);
-                          }}
-                          className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center space-x-1 ${
-                            modelSize === "accurate" && !useCustomModel
+                          onClick={() => setTranscriptionEngine("cloud")}
+                          className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                            transcriptionEngine === "cloud"
                               ? "bg-zinc-800 text-yellow-400 shadow"
                               : "text-zinc-400 hover:text-white"
                           }`}
                         >
-                          <span>Accurate (Small)</span>
-                          {!isPro && <Award size={10} className="text-zinc-500" />}
+                          Gemini Cloud (Instant)
                         </button>
                       </div>
                     </div>
 
-                    {/* Custom Model Toggle */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-zinc-400 block">Custom HF Model</label>
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          id="custom-model-toggle"
-                          checked={useCustomModel}
-                          onChange={(e) => setUseCustomModel(e.target.checked)}
-                          className="rounded border-zinc-800 text-yellow-500 focus:ring-yellow-500 bg-zinc-900 h-4 w-4"
-                        />
-                        <label htmlFor="custom-model-toggle" className="text-xs font-semibold text-zinc-300">
-                          Use fine-tuned Sinhala model
-                        </label>
+                    {transcriptionEngine === "local" ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Model Size Toggle */}
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-bold text-zinc-400 block">ASR Whisper Size</label>
+                          <div className="flex bg-zinc-900 p-1 border border-zinc-800 rounded-xl space-x-1">
+                            <button
+                              onClick={() => setModelSize("fast")}
+                              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                                modelSize === "fast" && !useCustomModel
+                                  ? "bg-zinc-800 text-yellow-400 shadow"
+                                  : "text-zinc-400 hover:text-white"
+                              }`}
+                            >
+                              Fast (Tiny)
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (!isPro) {
+                                  alert("👑 Accurate model requires Pro Mode! Toggle Pro Mode in the header to unlock.");
+                                  return;
+                                }
+                                setModelSize("accurate");
+                                setUseCustomModel(false);
+                              }}
+                              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center space-x-1 ${
+                                modelSize === "accurate" && !useCustomModel
+                                  ? "bg-zinc-800 text-yellow-400 shadow"
+                                  : "text-zinc-400 hover:text-white"
+                              }`}
+                            >
+                              <span>Accurate (Small)</span>
+                              {!isPro && <Award size={10} className="text-zinc-500" />}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Custom Model Toggle */}
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-bold text-zinc-400 block">Custom HF Model</label>
+                          <div className="flex items-center space-x-2 pt-2">
+                            <input
+                              type="checkbox"
+                              id="custom-model-toggle"
+                              checked={useCustomModel}
+                              onChange={(e) => setUseCustomModel(e.target.checked)}
+                              className="rounded border-zinc-800 text-yellow-500 focus:ring-yellow-500 bg-zinc-900 h-4 w-4"
+                            />
+                            <label htmlFor="custom-model-toggle" className="text-xs font-semibold text-zinc-300">
+                              Use fine-tuned Sinhala model
+                            </label>
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <motion.div
+                        initial={{ opacity: 0, y: -5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="space-y-3 p-4 bg-zinc-950/40 border border-zinc-800/80 rounded-2xl"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-zinc-300 flex items-center space-x-1.5">
+                            <Sparkles size={13} className="text-yellow-400 animate-pulse" />
+                            <span>Gemini Cloud Transcription Options</span>
+                          </span>
+                          <span className="text-[10px] text-zinc-500 px-1.5 py-0.5 bg-zinc-900 border border-zinc-800 rounded-md">
+                            Super Fast & Cloud Grounded
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-zinc-400 leading-relaxed">
+                          For instant transcription of longer videos or lower-powered devices, OmniCap uses our lightning-fast Express backend powered by Gemini 3.5.
+                        </p>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-bold text-zinc-400 block">Bring-Your-Own Gemini API Key (Optional)</label>
+                            <span className="text-[10px] text-zinc-500 italic">Saved locally</span>
+                          </div>
+                          <input
+                            type="password"
+                            placeholder="AIzaSy... (leave empty to use server default key)"
+                            value={geminiApiKey}
+                            onChange={(e) => handleApiKeyChange(e.target.value)}
+                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono text-zinc-300 focus:ring-1 focus:ring-yellow-500 focus:outline-none"
+                          />
+                        </div>
+                      </motion.div>
+                    )}
                   </div>
 
-                  {useCustomModel && (
+                  {transcriptionEngine === "local" && useCustomModel && (
                     <motion.div
                       initial={{ opacity: 0, y: -5 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -1753,7 +1987,7 @@ export default function App() {
                     {exportedUrl && (
                       <a
                         href={exportedUrl}
-                        download="OmniCap_captioned_video.webm"
+                        download={`OmniCap_captioned_video${exportedBlob?.type.includes("mp4") ? ".mp4" : ".webm"}`}
                         className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-black font-extrabold text-xs py-3 px-4 rounded-xl shadow-lg transition-all flex items-center justify-center space-x-1.5"
                       >
                         <Download size={14} />

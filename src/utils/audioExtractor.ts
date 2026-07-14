@@ -1,4 +1,25 @@
 /**
+ * Dynamic script loader to fetch FFmpeg.wasm on-demand (only in failure case)
+ */
+function loadFFmpegScript(): Promise<any> {
+  return new Promise((resolve, reject) => {
+    if ((window as any).FFmpeg) {
+      resolve((window as any).FFmpeg);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.0/dist/ffmpeg.min.js";
+    script.onload = () => {
+      resolve((window as any).FFmpeg);
+    };
+    script.onerror = (err) => {
+      reject(new Error("Failed to load FFmpeg.wasm from CDN."));
+    };
+    document.head.appendChild(script);
+  });
+}
+
+/**
  * Extracts and resamples audio from a video file entirely in the browser.
  * Resamples to 16000Hz mono Float32Array (Whisper's required input format).
  */
@@ -12,9 +33,6 @@ export async function extractAudioFromVideo(
   const arrayBuffer = await videoFile.arrayBuffer();
   onProgress(30); // File read into memory, starting native decode
 
-  // Create standard AudioContext to decode audio data
-  // Note: AudioContext can fail on certain old browsers or inside strict secure contexts,
-  // but it is widely supported in modern browsers.
   const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
   if (!AudioContextClass) {
     throw new Error("Web Audio API (AudioContext) is not supported in this browser.");
@@ -26,10 +44,54 @@ export async function extractAudioFromVideo(
   try {
     decodedBuffer = await tempCtx.decodeAudioData(arrayBuffer);
   } catch (err) {
-    console.error("Native decodeAudioData failed, trying fallback:", err);
-    throw new Error(
-      "Failed to decode video audio. Please ensure the video has a valid audio track or try converting it to a standard MP4."
-    );
+    console.warn("Native decodeAudioData failed, trying ffmpeg.wasm fallback...", err);
+    try {
+      onProgress(40); // Loading FFmpeg script
+      const FFmpegLib = await loadFFmpegScript();
+      const { createFFmpeg, fetchFile } = FFmpegLib;
+      
+      const ffmpeg = createFFmpeg({
+        log: true,
+        corePath: "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js"
+      });
+      
+      await ffmpeg.load();
+      onProgress(45); // Transcoding file
+      
+      // Write the video binary to virtual filesystem
+      ffmpeg.FS("writeFile", "input_video", new Uint8Array(arrayBuffer));
+      
+      // Run transcoding to extract audio to wav format (mono, 16kHz)
+      await ffmpeg.run(
+        "-i", "input_video",
+        "-vn",                 // Disable video
+        "-acodec", "pcm_s16le", // 16-bit signed little endian
+        "-ar", "16000",        // 16kHz
+        "-ac", "1",            // 1 mono channel
+        "output.wav"
+      );
+      
+      onProgress(55); // Reading transcoded output
+      const transcodedData = ffmpeg.FS("readFile", "output.wav");
+      
+      // Cleanup virtual filesystem
+      try {
+        ffmpeg.FS("unlink", "input_video");
+        ffmpeg.FS("unlink", "output.wav");
+      } catch (cleanErr) {
+        console.warn("FFmpeg virtual FS cleanup warning:", cleanErr);
+      }
+      
+      // Decode the transcoded WAV data using AudioContext
+      decodedBuffer = await tempCtx.decodeAudioData(transcodedData.buffer);
+      console.log("Successfully decoded audio via ffmpeg.wasm fallback!");
+    } catch (fallbackErr: any) {
+      console.error("FFmpeg fallback failed:", fallbackErr);
+      throw new Error(
+        "Failed to decode video audio natively, and transcoding fallback failed. " +
+        "Please ensure the video has a valid audio track or try converting it to a standard format."
+      );
+    }
   } finally {
     await tempCtx.close();
   }

@@ -18,7 +18,10 @@ self.addEventListener("message", async (event: MessageEvent) => {
 
       self.postMessage({ status: "loading", progress: 0, message: "Initializing pipeline..." });
 
+      const dtype = modelId.includes("q8") ? "q8" : "fp32";
+
       transcriber = await pipeline("automatic-speech-recognition", modelId, {
+        dtype,
         progress_callback: (data: any) => {
           if (data.status === "progress") {
             self.postMessage({

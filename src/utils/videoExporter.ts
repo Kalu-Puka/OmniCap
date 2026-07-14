@@ -159,9 +159,8 @@ export async function exportVideoClientSide({
       // 5. Start recording loop
       video.currentTime = 0;
       
-      // We can accelerate the playback speed to export up to 2x faster than real-time!
-      const exportSpeed = 2.0; 
-      video.playbackRate = exportSpeed;
+      // Maintain normal playback speed during export so recorded duration and pitch stay correct
+      video.playbackRate = 1.0;
 
       let animationFrameId: number;
 
