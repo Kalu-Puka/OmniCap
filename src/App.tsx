@@ -35,7 +35,7 @@ import {
   suggestEmojisForText
 } from "./utils/captionUtils";
 import { drawCaptionsOnCanvas } from "./utils/canvasRenderer";
-import { exportVideoClientSide } from "./utils/videoExporter";
+import { exportVideoClientSide, ExportResolution } from "./utils/videoExporter";
 import { BUNDLED_FONTS, BUNDLED_FONTS_GROUPED, DEFAULT_STYLE, STYLE_PRESETS } from "./utils/presets";
 
 export default function App() {
@@ -57,6 +57,7 @@ export default function App() {
   const [loadingStatus, setLoadingStatus] = useState<{ progress: number; message: string }>({ progress: 0, message: "" });
   const [transcriptionStatus, setTranscriptionStatus] = useState<{ progress: number; message: string }>({ progress: 0, message: "" });
   const [errorMsg, setErrorMsg] = useState<string>("");
+  const [transcribeErrorDetails, setTranscribeErrorDetails] = useState<any | null>(null);
 
   // Styling and Format Settings
   const [style, setStyle] = useState<CaptionStyle>(DEFAULT_STYLE);
@@ -86,6 +87,7 @@ export default function App() {
   const [exportProgress, setExportProgress] = useState<number>(0);
   const [exportedBlob, setExportedBlob] = useState<Blob | null>(null);
   const [exportedUrl, setExportedUrl] = useState<string>("");
+  const [exportResolution, setExportResolution] = useState<ExportResolution>("720p");
 
   // UI Panels
   const [activeTab, setActiveTab] = useState<"editor" | "style" | "presets" | "download">("editor");
@@ -196,6 +198,9 @@ export default function App() {
   const handleProToggle = (val: boolean) => {
     setIsPro(val);
     set("omnicap_is_pro", val).catch(console.error);
+    if (!val && (exportResolution === "2K" || exportResolution === "4K")) {
+      setExportResolution("720p");
+    }
   };
 
   const handleRatioChange = (val: AspectRatio) => {
@@ -262,6 +267,7 @@ export default function App() {
   const handleStartCaptioning = async () => {
     if (!videoBytes || !videoFile) return;
     setErrorMsg("");
+    setTranscribeErrorDetails(null);
 
     let rawAudio = extractedAudio;
     if (!rawAudio) {
@@ -350,7 +356,11 @@ export default function App() {
         });
 
         const data = await response.json();
-        if (data.error) throw new Error(data.error);
+        if (!response.ok || data.error) {
+          const errObj = new Error(data.error || "Unknown server error");
+          (errObj as any).details = data.details;
+          throw errObj;
+        }
 
         if (!data.segments || !Array.isArray(data.segments)) {
           throw new Error(`Invalid response format for segment ${i + 1}.`);
@@ -408,7 +418,17 @@ export default function App() {
       setStep("editor");
     } catch (cloudErr: any) {
       console.error("Cloud transcription failed:", cloudErr);
-      setErrorMsg(`Gemini cloud transcription failed: ${cloudErr.message || "Unknown error"}. Please check your internet connection or API key and try again.`);
+      if (cloudErr.details) {
+        console.error("Cloud transcription details:", cloudErr.details);
+      }
+      let displayError = `Gemini cloud transcription failed: ${cloudErr.message || "Unknown error"}.`;
+      if (cloudErr.details?.troubleshootingHint) {
+        displayError += ` Hint: ${cloudErr.details.troubleshootingHint}`;
+      } else {
+        displayError += ` Please check your internet connection or API key and try again.`;
+      }
+      setTranscribeErrorDetails(cloudErr.details || null);
+      setErrorMsg(displayError);
       setStep("upload");
     }
   };
@@ -860,6 +880,7 @@ export default function App() {
         cropMode,
         showTranslation,
         isPro,
+        resolution: exportResolution,
         onProgress: (p) => setExportProgress(p),
       });
 
@@ -1015,6 +1036,21 @@ export default function App() {
                           <p className="opacity-90">{errorMsg}</p>
                         </div>
                       </div>
+
+                      {transcribeErrorDetails && (
+                        <details className="mt-2 text-[10px] text-zinc-400 cursor-pointer">
+                          <summary className="font-semibold hover:text-zinc-300">Technical details</summary>
+                          <div className="mt-1 p-2 bg-black/40 rounded border border-zinc-800/50 font-mono text-left overflow-auto max-h-32">
+                            {transcribeErrorDetails.status && <p>Status: {transcribeErrorDetails.status}</p>}
+                            {transcribeErrorDetails.code && <p>Code: {transcribeErrorDetails.code}</p>}
+                            {transcribeErrorDetails.message && <p>Message: {transcribeErrorDetails.message}</p>}
+                            {transcribeErrorDetails.troubleshootingHint && (
+                              <p className="text-yellow-400/90 mt-1">Hint: {transcribeErrorDetails.troubleshootingHint}</p>
+                            )}
+                          </div>
+                        </details>
+                      )}
+
                       <button
                         onClick={handleStartCaptioning}
                         className="bg-red-900/40 hover:bg-red-900/60 border border-red-700/50 text-white font-bold text-xs py-1.5 px-3 rounded-lg transition-colors self-end flex items-center space-x-1"
@@ -1927,6 +1963,50 @@ export default function App() {
                   {/* TAB 4: CAPTION EXPORTS & BURN VIDEO */}
                   {activeTab === "download" && (
                     <div className="space-y-6">
+                      {/* Resolution Selector */}
+                      <div className="bg-[#0a0b0d]/50 border border-[#262930] rounded-2xl p-5 space-y-4 shadow-sm">
+                        <div className="space-y-1">
+                          <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider block">
+                            Export Resolution
+                          </span>
+                          <p className="text-[11px] text-zinc-500">
+                            Select the output video dimensions. Higher resolutions provide sharper quality but take longer to process.
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-5 gap-1.5 p-1 bg-[#16181d] border border-[#262930] rounded-xl">
+                          {(["480p", "720p", "1080p", "2K", "4K"] as const).map((res) => {
+                            const isPremium = res === "2K" || res === "4K";
+                            const isActive = exportResolution === res;
+                            return (
+                              <button
+                                key={res}
+                                type="button"
+                                onClick={() => {
+                                  if (isPremium && !isPro) {
+                                    showToast("👑 2K & 4K exports require Pro Mode! Switch to Pro in the top header to unlock.");
+                                    return;
+                                  }
+                                  setExportResolution(res);
+                                }}
+                                className={`relative py-2 text-xs font-bold rounded-lg transition-all flex flex-col items-center justify-center ${
+                                  isActive
+                                    ? "bg-gradient-to-tr from-[#262930] to-[#3a3d47] text-yellow-400 shadow-md border border-yellow-500/25"
+                                    : "text-zinc-500 hover:text-white border border-transparent"
+                                }`}
+                              >
+                                <span>{res}</span>
+                                {isPremium && (
+                                  <span className="absolute -top-1 -right-1 bg-gradient-to-r from-yellow-400 to-amber-500 text-[8px] text-black font-black px-1 rounded-full scale-75">
+                                    PRO
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
                       {/* Video Burn-in Action */}
                       <div className="bg-gradient-to-tr from-yellow-500/[0.02] to-amber-500/[0.02] border border-[#262930] p-5.5 rounded-3xl space-y-4 shadow">
                         <div className="space-y-1">

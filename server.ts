@@ -137,47 +137,131 @@ ${JSON.stringify(segmentsInput, null, 2)}`,
 
       console.log("[OmniCap Server] Sending audio chunk to Gemini for transcription...");
 
-      const response = await client.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: [
-          audioPart,
-          {
-            text: "Analyze the provided audio track. Transcribe it completely and accurately into Sinhala (Sri Lanka) text.\n" +
-                  "Break the transcription down into small, readable subtitle segments (each segment should usually be 2 to 7 seconds long).\n" +
-                  "For each segment, output the start and end timestamps in seconds, the text, and split the segment's words into individual word-level timings with start/end times.\n" +
-                  "Ensure that the timestamps are highly accurate and align perfectly with when the words are spoken in the audio."
-          }
-        ],
-        config: {
-          systemInstruction: "You are an expert audio transcriptionist for the Sinhala language. You specialize in generating perfectly-timed subtitle segments with character-level or word-level timings in JSON format.",
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                start: { type: Type.NUMBER, description: "Start time of the segment in seconds" },
-                end: { type: Type.NUMBER, description: "End time of the segment in seconds" },
-                text: { type: Type.STRING, description: "The transcribed Sinhala text" },
-                words: {
+      const callWithRetry = async (modelName: string): Promise<any> => {
+        const maxAttempts = 3;
+        let attempt = 0;
+        while (attempt < maxAttempts) {
+          attempt++;
+          try {
+            console.log(`[OmniCap Server] Running attempt ${attempt} of ${maxAttempts} for model ${modelName}...`);
+            const response = await client.models.generateContent({
+              model: modelName,
+              contents: [
+                audioPart,
+                {
+                  text: "Analyze the provided audio track. Transcribe it completely and accurately into Sinhala (Sri Lanka) text.\n" +
+                        "Break the transcription down into small, readable subtitle segments (each segment should usually be 2 to 7 seconds long).\n" +
+                        "For each segment, output the start and end timestamps in seconds, the text, and split the segment's words into individual word-level timings with start/end times.\n" +
+                        "Ensure that the timestamps are highly accurate and align perfectly with when the words are spoken in the audio."
+                }
+              ],
+              config: {
+                systemInstruction: "You are an expert audio transcriptionist for the Sinhala language. You specialize in generating perfectly-timed subtitle segments with character-level or word-level timings in JSON format.",
+                responseMimeType: "application/json",
+                responseSchema: {
                   type: Type.ARRAY,
                   items: {
                     type: Type.OBJECT,
                     properties: {
-                      text: { type: Type.STRING },
-                      start: { type: Type.NUMBER },
-                      end: { type: Type.NUMBER }
+                      start: { type: Type.NUMBER, description: "Start time of the segment in seconds" },
+                      end: { type: Type.NUMBER, description: "End time of the segment in seconds" },
+                      text: { type: Type.STRING, description: "The transcribed Sinhala text" },
+                      words: {
+                        type: Type.ARRAY,
+                        items: {
+                          type: Type.OBJECT,
+                          properties: {
+                            text: { type: Type.STRING },
+                            start: { type: Type.NUMBER },
+                            end: { type: Type.NUMBER }
+                          },
+                          required: ["text", "start", "end"]
+                        },
+                        description: "Optional word-level timings within this segment"
+                      }
                     },
-                    required: ["text", "start", "end"]
-                  },
-                  description: "Optional word-level timings within this segment"
+                    required: ["start", "end", "text"]
+                  }
                 }
-              },
-              required: ["start", "end", "text"]
+              }
+            });
+            return response;
+          } catch (err: any) {
+            console.error(`[OmniCap Server] Model ${modelName} - Attempt ${attempt} failed:`, err);
+            
+            const statusCode = err?.status || err?.code || (err?.response?.status) || (err?.response?.code);
+            const statusString = String(err?.status || "").toUpperCase();
+            const messageString = String(err?.message || "").toUpperCase();
+
+            const isUnavailable = statusCode === 503 || statusString === "UNAVAILABLE" || messageString.includes("UNAVAILABLE") || messageString.includes("503");
+            const isRateLimit = statusCode === 429 || statusString === "RESOURCE_EXHAUSTED" || messageString.includes("RESOURCE_EXHAUSTED") || messageString.includes("429");
+            
+            const isRetryable = isUnavailable || isRateLimit;
+
+            if (isRetryable && attempt < maxAttempts) {
+              const backoffMs = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
+              console.log(`[OmniCap Server] Retryable error encountered. Waiting ${backoffMs}ms before retrying...`);
+              await new Promise(resolve => setTimeout(resolve, backoffMs));
+            } else {
+              throw err;
             }
           }
         }
-      });
+      };
+
+      let response;
+      try {
+        response = await callWithRetry("gemini-3.5-flash");
+      } catch (firstError: any) {
+        console.warn("[OmniCap Server] Primary model gemini-3.5-flash failed completely. Trying fallback model gemini-2.5-flash...");
+        try {
+          // Attempt once more against gemini-2.5-flash as the fallback (regardless of error type)
+          response = await client.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: [
+              audioPart,
+              {
+                text: "Analyze the provided audio track. Transcribe it completely and accurately into Sinhala (Sri Lanka) text.\n" +
+                      "Break the transcription down into small, readable subtitle segments (each segment should usually be 2 to 7 seconds long).\n" +
+                      "For each segment, output the start and end timestamps in seconds, the text, and split the segment's words into individual word-level timings with start/end times.\n" +
+                      "Ensure that the timestamps are highly accurate and align perfectly with when the words are spoken in the audio."
+              }
+            ],
+            config: {
+              systemInstruction: "You are an expert audio transcriptionist for the Sinhala language. You specialize in generating perfectly-timed subtitle segments with character-level or word-level timings in JSON format.",
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    start: { type: Type.NUMBER, description: "Start time of the segment in seconds" },
+                    end: { type: Type.NUMBER, description: "End time of the segment in seconds" },
+                    text: { type: Type.STRING, description: "The transcribed Sinhala text" },
+                    words: {
+                      type: Type.ARRAY,
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          text: { type: Type.STRING },
+                          start: { type: Type.NUMBER },
+                          end: { type: Type.NUMBER }
+                        },
+                        required: ["text", "start", "end"]
+                      },
+                      description: "Optional word-level timings within this segment"
+                    }
+                  },
+                  required: ["start", "end", "text"]
+                }
+              }
+            }
+          });
+        } catch (fallbackError: any) {
+          console.error("[OmniCap Server] Fallback model gemini-2.5-flash also failed:", fallbackError);
+          throw fallbackError;
+        }
+      }
 
       const responseText = response.text;
       if (!responseText) {
@@ -188,7 +272,41 @@ ${JSON.stringify(segmentsInput, null, 2)}`,
       res.json({ segments: result });
     } catch (error: any) {
       console.error("Cloud transcription error:", error);
-      res.status(500).json({ error: error.message || "An error occurred during cloud transcription." });
+      
+      const statusCode = error?.status || error?.code || (error?.response?.status) || (error?.response?.code);
+      const statusString = error?.status ? String(error.status) : undefined;
+      const errorCode = typeof statusCode === "number" ? statusCode : undefined;
+      const errorMessage = error?.message || "An error occurred during cloud transcription.";
+
+      const isUnavailable = errorCode === 503 || String(statusString).toUpperCase() === "UNAVAILABLE" || errorMessage.toUpperCase().includes("UNAVAILABLE") || errorMessage.includes("503");
+      const isRateLimit = errorCode === 429 || String(statusString).toUpperCase() === "RESOURCE_EXHAUSTED" || errorMessage.toUpperCase().includes("RESOURCE_EXHAUSTED") || errorMessage.includes("429");
+
+      let clientMessage = errorMessage;
+      let troubleshootingHint = undefined;
+
+      if (isUnavailable || isRateLimit) {
+        clientMessage = "Gemini's servers are experiencing high demand right now. We retried automatically — if this keeps happening, wait a minute and try again, or switch to a different Gemini API key.";
+      } else {
+        const isAuthOrBilling = errorCode === 400 || errorCode === 401 || errorCode === 403 || errorCode === 404 ||
+          errorMessage.toLowerCase().includes("billing") ||
+          errorMessage.toLowerCase().includes("permission") ||
+          errorMessage.toLowerCase().includes("key") ||
+          errorMessage.toLowerCase().includes("auth");
+
+        if (isAuthOrBilling) {
+          troubleshootingHint = "If this mentions billing or permission, your Gemini API key may need billing enabled for this model, or the key is invalid or restricted.";
+        }
+      }
+
+      res.status(500).json({
+        error: clientMessage,
+        details: {
+          status: statusString || error?.status || null,
+          code: errorCode || null,
+          message: errorMessage,
+          troubleshootingHint
+        }
+      });
     }
   });
 

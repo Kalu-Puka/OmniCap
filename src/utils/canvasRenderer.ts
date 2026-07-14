@@ -13,7 +13,8 @@ export function drawCaptionsOnCanvas(
   segments: CaptionSegment[],
   style: CaptionStyle,
   showTranslation = false,
-  isPro = false
+  isPro = false,
+  scaleFactor = 1
 ) {
   // Clear context or let the caller handle it (we draw over)
   // Usually, the caller draws the video frame first, then calls us.
@@ -88,7 +89,7 @@ export function drawCaptionsOnCanvas(
 
   // Scale font size according to the canvas resolution dynamically!
   // Reference width is 640px, so 24px font on 640px video scales to 48px on 1280px video.
-  const scale = canvasWidth / 640;
+  const scale = (canvasWidth / 640) * scaleFactor;
   const fontSize = style.fontSize * scale;
   const outlineWidth = style.outlineWidth * scale;
   const letterSpacing = style.letterSpacing * scale;
