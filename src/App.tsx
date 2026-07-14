@@ -36,7 +36,7 @@ import {
 } from "./utils/captionUtils";
 import { drawCaptionsOnCanvas } from "./utils/canvasRenderer";
 import { exportVideoClientSide } from "./utils/videoExporter";
-import { BUNDLED_FONTS, DEFAULT_STYLE, STYLE_PRESETS } from "./utils/presets";
+import { BUNDLED_FONTS, BUNDLED_FONTS_GROUPED, DEFAULT_STYLE, STYLE_PRESETS } from "./utils/presets";
 
 export default function App() {
   // App Steps: 'upload' | 'extracting' | 'transcribing' | 'editor' | 'exporting'
@@ -1545,10 +1545,14 @@ export default function App() {
                               onChange={(e) => updateStyle({ fontFamily: e.target.value })}
                               className="w-full bg-[#16181d] border border-[#262930] rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:border-yellow-400"
                             >
-                              {BUNDLED_FONTS.map((f) => (
-                                <option key={f.value} value={f.value}>
-                                  {f.name}
-                                </option>
+                              {Object.entries(BUNDLED_FONTS_GROUPED).map(([groupName, fonts]) => (
+                                <optgroup key={groupName} label={groupName} className="text-yellow-500 font-bold bg-[#16181d]">
+                                  {fonts.map((f) => (
+                                    <option key={f.value} value={f.value} className="text-zinc-100 font-medium bg-[#16181d]">
+                                      {f.name}
+                                    </option>
+                                  ))}
+                                </optgroup>
                               ))}
                             </select>
                           </div>

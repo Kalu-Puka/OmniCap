@@ -1,15 +1,101 @@
 import { CaptionStyle, StylePreset } from "../types";
 
-export const BUNDLED_FONTS = [
-  { name: "Abhaya Libre (Elegant Sinhala)", value: "Abhaya Libre" },
-  { name: "Noto Sans Sinhala (Modern Sinhala)", value: "Noto Sans Sinhala" },
-  { name: "Noto Serif Sinhala (Classic Sinhala)", value: "Noto Serif Sinhala" },
-  { name: "Yatra One (Retro Sinhala)", value: "Yatra One" },
-  { name: "Inter (Minimalist Clean)", value: "Inter" },
-  { name: "Impact (Bold Memes)", value: "Impact" },
-  { name: "Space Grotesk (Tech Display)", value: "Space Grotesk" },
-  { name: "JetBrains Mono (Technical)", value: "JetBrains Mono" },
-];
+export const BUNDLED_FONTS_GROUPED: Record<string, { name: string; value: string }[]> = {
+  "Sinhala — Modern": [
+    { name: "Noto Sans Sinhala (Modern Sinhala)", value: "Noto Sans Sinhala" },
+    { name: "Gemunu Libre", value: "Gemunu Libre" },
+    { name: "Maname", value: "Maname" },
+    { name: "Yaldevi", value: "Yaldevi" }
+  ],
+  "Sinhala — Elegant/Serif": [
+    { name: "Abhaya Libre (Elegant Sinhala)", value: "Abhaya Libre" },
+    { name: "Noto Serif Sinhala (Classic Sinhala)", value: "Noto Serif Sinhala" }
+  ],
+  "Sinhala — Bold Display": [
+    { name: "AF Sandarenu", value: "AF Sandarenu" },
+    { name: "AF Sigiri", value: "AF Sigiri" },
+    { name: "Aloka", value: "Aloka" },
+    { name: "Anupama", value: "Anupama" },
+    { name: "Aragalaya", value: "Aragalaya" },
+    { name: "Arana", value: "Arana" },
+    { name: "Fontoshan", value: "Fontoshan" },
+    { name: "Mihiravi", value: "Mihiravi" },
+    { name: "Pawana", value: "Pawana" },
+    { name: "Pradeep", value: "Pradeep" },
+    { name: "Yatra One (Retro Sinhala)", value: "Yatra One" }
+  ],
+  "Sinhala — Handwritten": [
+    { name: "Tharu Malee", value: "Tharu Malee" },
+    { name: "Tharu Nidahasa", value: "Tharu Nidahasa" },
+    { name: "Tharu Nikini", value: "Tharu Nikini" },
+    { name: "Tharu Sansala", value: "Tharu Sansala" },
+    { name: "Tharu", value: "Tharu" }
+  ],
+  "Sinhala — Numbered/Misc": [
+    { name: "SN01", value: "SN01" },
+    { name: "SN02", value: "SN02" },
+    { name: "SN03", value: "SN03" },
+    { name: "SN04", value: "SN04" },
+    { name: "SN05", value: "SN05" },
+    { name: "SN06", value: "SN06" },
+    { name: "SN07", value: "SN07" },
+    { name: "SN08", value: "SN08" },
+    { name: "SN09", value: "SN09" },
+    { name: "SN10", value: "SN10" },
+    { name: "SN11", value: "SN11" },
+    { name: "SN12", value: "SN12" },
+    { name: "SN13", value: "SN13" },
+    { name: "SN14", value: "SN14" },
+    { name: "SN15", value: "SN15" },
+    { name: "SN16", value: "SN16" },
+    { name: "SN17", value: "SN17" },
+    { name: "SN18", value: "SN18" },
+    { name: "SN19", value: "SN19" },
+    { name: "SN20", value: "SN20" },
+    { name: "SN21", value: "SN21" }
+  ],
+  "English — Bold Display": [
+    { name: "Impact (Bold Memes)", value: "Impact" },
+    { name: "Anton", value: "Anton" },
+    { name: "Archivo Black", value: "Archivo Black" },
+    { name: "Bebas Neue", value: "Bebas Neue" },
+    { name: "Blaak", value: "Blaak" },
+    { name: "Cc Oldpress", value: "Cc Oldpress" },
+    { name: "Coolvetica", value: "Coolvetica" },
+    { name: "Larken Bold", value: "Larken Bold" },
+    { name: "Lemon Milk", value: "Lemon Milk" },
+    { name: "Montserrat Extrabold", value: "Montserrat Extrabold" },
+    { name: "Neogen Black", value: "Neogen Black" },
+    { name: "Tactic Sans", value: "Tactic Sans" },
+    { name: "Wark", value: "Wark" }
+  ],
+  "English — Clean/Sans": [
+    { name: "Inter (Minimalist Clean)", value: "Inter" },
+    { name: "Space Grotesk (Tech Display)", value: "Space Grotesk" },
+    { name: "JetBrains Mono (Technical)", value: "JetBrains Mono" },
+    { name: "Inter Extrabold", value: "Inter Extrabold" },
+    { name: "Manrope", value: "Manrope" },
+    { name: "Monofonto", value: "Monofonto" },
+    { name: "Montserrat", value: "Montserrat" },
+    { name: "Noto Sans Bold", value: "Noto Sans Bold" },
+    { name: "Open Sauce", value: "Open Sauce" },
+    { name: "Poppins", value: "Poppins" },
+    { name: "Oswald", value: "Oswald" }
+  ],
+  "English — Handwritten/Script": [
+    { name: "Adelia", value: "Adelia" },
+    { name: "Autography", value: "Autography" },
+    { name: "Caveat", value: "Caveat" },
+    { name: "Gentle Hearts", value: "Gentle Hearts" },
+    { name: "Glorida", value: "Glorida" },
+    { name: "Kids Word", value: "Kids Word" },
+    { name: "Leslies Hand", value: "Leslies Hand" },
+    { name: "Lost Hand", value: "Lost Hand" },
+    { name: "Watch Sunset", value: "Watch Sunset" }
+  ]
+};
+
+export const BUNDLED_FONTS = Object.values(BUNDLED_FONTS_GROUPED).flat();
 
 export const DEFAULT_STYLE: CaptionStyle = {
   fontFamily: "Noto Sans Sinhala",

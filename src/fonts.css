@@ -1,0 +1,426 @@
+@font-face {
+  font-family: "Abhaya Libre";
+  src: url("/fonts/abhaya-libre.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Adelia";
+  src: url("/fonts/adelia.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "AF Sandarenu";
+  src: url("/fonts/af-sandarenu.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "AF Sigiri";
+  src: url("/fonts/af-sigiri.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Aloka";
+  src: url("/fonts/aloka.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Anton";
+  src: url("/fonts/anton.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Anupama";
+  src: url("/fonts/anupama.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Aragalaya";
+  src: url("/fonts/aragalaya.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Arana";
+  src: url("/fonts/arana.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Archivo Black";
+  src: url("/fonts/archivo-black.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Autography";
+  src: url("/fonts/autography.otf") format("opentype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bebas Neue";
+  src: url("/fonts/bebas-neue.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Blaak";
+  src: url("/fonts/blaak.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Caveat";
+  src: url("/fonts/caveat.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Cc Oldpress";
+  src: url("/fonts/cc-oldpress.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Coolvetica";
+  src: url("/fonts/coolvetica.otf") format("opentype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Fontoshan";
+  src: url("/fonts/fontoshan.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Gemunu Libre";
+  src: url("/fonts/gemunu-libre.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Gentle Hearts";
+  src: url("/fonts/gentle-hearts.otf") format("opentype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Glorida";
+  src: url("/fonts/glorida.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter Extrabold";
+  src: url("/fonts/inter-extrabold.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Kids Word";
+  src: url("/fonts/kids-word.otf") format("opentype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Larken Bold";
+  src: url("/fonts/larken-bold.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Lemon Milk";
+  src: url("/fonts/lemon-milk.otf") format("opentype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Leslies Hand";
+  src: url("/fonts/leslies-hand.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Lost Hand";
+  src: url("/fonts/lost-hand.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Maname";
+  src: url("/fonts/maname.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Manrope";
+  src: url("/fonts/manrope.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Mihiravi";
+  src: url("/fonts/mihiravi.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Monofonto";
+  src: url("/fonts/monofonto.otf") format("opentype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Montserrat Extrabold";
+  src: url("/fonts/montserrat-extrabold.otf") format("opentype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Montserrat";
+  src: url("/fonts/montserrat.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Neogen Black";
+  src: url("/fonts/neogen-black.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Noto Sans Bold";
+  src: url("/fonts/noto-sans-bold.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Noto Sans Sinhala";
+  src: url("/fonts/noto-sans-sinhala.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Noto Serif Sinhala";
+  src: url("/fonts/noto-serif-sinhala.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Open Sauce";
+  src: url("/fonts/open-sauce.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Oswald";
+  src: url("/fonts/oswald.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Pawana";
+  src: url("/fonts/pawana.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Poppins";
+  src: url("/fonts/poppins.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Pradeep";
+  src: url("/fonts/pradeep.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN01";
+  src: url("/fonts/sn01.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN02";
+  src: url("/fonts/sn02.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN03";
+  src: url("/fonts/sn03.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN04";
+  src: url("/fonts/sn04.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN05";
+  src: url("/fonts/sn05.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN06";
+  src: url("/fonts/sn06.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN07";
+  src: url("/fonts/sn07.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN08";
+  src: url("/fonts/sn08.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN09";
+  src: url("/fonts/sn09.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN10";
+  src: url("/fonts/sn10.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN11";
+  src: url("/fonts/sn11.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN12";
+  src: url("/fonts/sn12.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN13";
+  src: url("/fonts/sn13.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN14";
+  src: url("/fonts/sn14.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN15";
+  src: url("/fonts/sn15.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN16";
+  src: url("/fonts/sn16.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN17";
+  src: url("/fonts/sn17.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN18";
+  src: url("/fonts/sn18.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN19";
+  src: url("/fonts/sn19.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN20";
+  src: url("/fonts/sn20.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SN21";
+  src: url("/fonts/sn21.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Tactic Sans";
+  src: url("/fonts/tactic-sans.otf") format("opentype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Tharu Malee";
+  src: url("/fonts/tharu-malee.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Tharu Nidahasa";
+  src: url("/fonts/tharu-nidahasa.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Tharu Nikini";
+  src: url("/fonts/tharu-nikini.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Tharu Sansala";
+  src: url("/fonts/tharu-sansala.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Tharu";
+  src: url("/fonts/tharu.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Wark";
+  src: url("/fonts/wark.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Watch Sunset";
+  src: url("/fonts/watch-sunset.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Yaldevi";
+  src: url("/fonts/yaldevi.ttf") format("truetype");
+  font-display: swap;
+}
+
