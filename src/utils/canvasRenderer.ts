@@ -184,13 +184,70 @@ export function drawCaptionsOnCanvas(
     ctx.lineWidth = outlineWidth;
     ctx.lineJoin = "round";
 
-    ctx.fillStyle = style.activeColor;
+    // Premium metallic gradient or solid color fill
+    if (style.textFillType === "gradient-gold") {
+      const gradient = ctx.createLinearGradient(-30, -fontSize * 0.4, 30, fontSize * 0.4);
+      gradient.addColorStop(0, "#FFE082");
+      gradient.addColorStop(0.3, "#FFD54F");
+      gradient.addColorStop(0.5, "#FFC107");
+      gradient.addColorStop(0.75, "#FFB300");
+      gradient.addColorStop(1, "#FFA000");
+      ctx.fillStyle = gradient;
+    } else if (style.textFillType === "gradient-chrome") {
+      const gradient = ctx.createLinearGradient(-30, -fontSize * 0.4, 30, fontSize * 0.4);
+      gradient.addColorStop(0, "#F3F4F6");
+      gradient.addColorStop(0.2, "#D1D5DB");
+      gradient.addColorStop(0.4, "#9CA3AF");
+      gradient.addColorStop(0.5, "#4B5563");
+      gradient.addColorStop(0.6, "#9CA3AF");
+      gradient.addColorStop(0.8, "#E5E7EB");
+      gradient.addColorStop(1, "#FFFFFF");
+      ctx.fillStyle = gradient;
+    } else {
+      ctx.fillStyle = style.activeColor;
+    }
     ctx.textAlign = "center";
 
-    if (outlineWidth > 0) {
-      ctx.strokeText(activeWord.text, 0, 0);
+    // Render text with specific premium styles if active
+    if ((style.animationStyle as string) === "neonGlow") {
+      ctx.save();
+      ctx.shadowColor = style.activeColor || "#39FF14";
+      for (let g = 1; g <= 3; g++) {
+        ctx.shadowBlur = g * 12 * scale;
+        if (outlineWidth > 0) {
+          ctx.strokeText(activeWord.text, 0, 0);
+        }
+        ctx.fillText(activeWord.text, 0, 0);
+      }
+      ctx.restore();
+    } else if ((style.animationStyle as string) === "glitch") {
+      const jitterX = (Math.random() - 0.5) * 6 * scale;
+      const jitterY = (Math.random() - 0.5) * 6 * scale;
+      ctx.save();
+      ctx.fillStyle = "rgba(0, 255, 255, 0.75)";
+      ctx.fillText(activeWord.text, jitterX, jitterY);
+      ctx.fillStyle = "rgba(255, 0, 0, 0.75)";
+      ctx.fillText(activeWord.text, -jitterX, -jitterY);
+      ctx.restore();
+      ctx.fillText(activeWord.text, jitterX * 0.3, jitterY * 0.3);
+    } else if ((style.animationStyle as string) === "lightSweep") {
+      const sweepGradient = ctx.createLinearGradient(-50 + ratio * 100, -fontSize * 0.5, -50 + ratio * 100 + 40, fontSize * 0.5);
+      sweepGradient.addColorStop(0, style.activeColor);
+      sweepGradient.addColorStop(0.4, style.activeColor);
+      sweepGradient.addColorStop(0.5, "#FFFFFF");
+      sweepGradient.addColorStop(0.6, style.activeColor);
+      sweepGradient.addColorStop(1, style.activeColor);
+      ctx.fillStyle = sweepGradient;
+      if (outlineWidth > 0) {
+        ctx.strokeText(activeWord.text, 0, 0);
+      }
+      ctx.fillText(activeWord.text, 0, 0);
+    } else {
+      if (outlineWidth > 0) {
+        ctx.strokeText(activeWord.text, 0, 0);
+      }
+      ctx.fillText(activeWord.text, 0, 0);
     }
-    ctx.fillText(activeWord.text, 0, 0);
 
     ctx.restore();
     ctx.restore();
@@ -352,9 +409,22 @@ export function drawCaptionsOnCanvas(
           const zoomProgress = Math.min(1, wordElapsed / 0.12);
           ctx.scale(zoomProgress, zoomProgress);
         }
+
+        // 7. UNDERLINE POP style
+        if (style.animationStyle === "underlinePop") {
+          const popFactor = 1 + 0.12 * Math.sin(r * Math.PI);
+          ctx.scale(popFactor, popFactor);
+        }
+
+        // 8. GLITCH style (jitter)
+        if (style.animationStyle === "glitch") {
+          const jitterX = (Math.random() - 0.5) * 5 * scale;
+          const jitterY = (Math.random() - 0.5) * 5 * scale;
+          ctx.translate(jitterX * 0.3, jitterY * 0.3);
+        }
       }
 
-      // 7. FADE style (dim inactive words, fully light active/past words)
+      // FADE style (dim inactive words, fully light active/past words)
       if (style.animationStyle === "fade") {
         if (!isWordActive && !isWordPast) {
           ctx.globalAlpha = 0.35;
@@ -363,7 +433,7 @@ export function drawCaptionsOnCanvas(
         }
       }
 
-      // 8. TYPEWRITER style (only show chars sequentially)
+      // TYPEWRITER style (only show chars sequentially)
       let textToDraw = mWord.text;
       if (style.animationStyle === "typewriter" && isWordActive) {
         const charCount = mWord.text.length;
@@ -402,6 +472,42 @@ export function drawCaptionsOnCanvas(
       }
 
       ctx.fillStyle = wordFillColor;
+
+      // Handle premium linear gradients for filled active/past words
+      let useGradient = (isWordActive || isWordPast) && style.textFillType && style.textFillType !== "solid";
+      let textGradient: CanvasGradient | null = null;
+      if (useGradient) {
+        textGradient = ctx.createLinearGradient(-mWord.width / 2, -fontSize * 0.4, mWord.width / 2, fontSize * 0.4);
+        if (style.textFillType === "gradient-gold") {
+          textGradient.addColorStop(0, "#FFE082");
+          textGradient.addColorStop(0.3, "#FFD54F");
+          textGradient.addColorStop(0.5, "#FFC107");
+          textGradient.addColorStop(0.75, "#FFB300");
+          textGradient.addColorStop(1, "#FFA000");
+        } else if (style.textFillType === "gradient-chrome") {
+          textGradient.addColorStop(0, "#F3F4F6");
+          textGradient.addColorStop(0.2, "#D1D5DB");
+          textGradient.addColorStop(0.4, "#9CA3AF");
+          textGradient.addColorStop(0.5, "#4B5563");
+          textGradient.addColorStop(0.6, "#9CA3AF");
+          textGradient.addColorStop(0.8, "#E5E7EB");
+          textGradient.addColorStop(1, "#FFFFFF");
+        }
+        ctx.fillStyle = textGradient;
+      }
+
+      // Apply Light Sweep style for active word
+      if (style.animationStyle === "lightSweep" && isWordActive) {
+        const startX = -mWord.width + r * 2 * mWord.width;
+        const sweepGradient = ctx.createLinearGradient(startX, -fontSize * 0.5, startX + mWord.width, fontSize * 0.5);
+        sweepGradient.addColorStop(0, style.activeColor);
+        sweepGradient.addColorStop(0.4, style.activeColor);
+        sweepGradient.addColorStop(0.5, "#FFFFFF"); // white shine sweep
+        sweepGradient.addColorStop(0.6, style.activeColor);
+        sweepGradient.addColorStop(1, style.activeColor);
+        ctx.fillStyle = sweepGradient;
+      }
+
       ctx.textAlign = "center";
 
       // Draw stroke outline
@@ -412,29 +518,70 @@ export function drawCaptionsOnCanvas(
         ctx.strokeText(textToDraw, 0, 0);
       }
 
-      // Draw fill text
-      if (style.animationStyle === "karaoke" && isWordActive) {
-        // Progressive karaoke wipe effect!
-        // First draw base text in default color
-        ctx.fillStyle = style.textColor;
-        ctx.fillText(textToDraw, 0, 0);
-
-        // Then draw clipped active overlay from left to right matching elapsed word ratio
+      // Custom high-performance premium rendering
+      if (style.animationStyle === "neonGlow" && isWordActive) {
         ctx.save();
-        ctx.fillStyle = style.activeColor;
-        const widthToClip = mWord.width * r;
-        ctx.beginPath();
-        ctx.rect(-mWord.width / 2, -fontSize, widthToClip, fontSize * 2);
-        ctx.clip();
-
-        // Draw overlay
-        if (outlineWidth > 0) {
-          ctx.strokeText(textToDraw, 0, 0);
+        ctx.shadowColor = style.activeColor || "#39FF14";
+        for (let g = 1; g <= 3; g++) {
+          ctx.shadowBlur = g * 12 * scale;
+          if (outlineWidth > 0) {
+            ctx.strokeStyle = style.outlineColor;
+            ctx.lineWidth = outlineWidth;
+            ctx.strokeText(textToDraw, 0, 0);
+          }
+          ctx.fillText(textToDraw, 0, 0);
         }
-        ctx.fillText(textToDraw, 0, 0);
         ctx.restore();
-      } else {
+      } else if (style.animationStyle === "glitch" && isWordActive) {
+        const jitterX = (Math.random() - 0.5) * 5 * scale;
+        const jitterY = (Math.random() - 0.5) * 5 * scale;
+        ctx.save();
+        ctx.fillStyle = "rgba(0, 255, 255, 0.75)";
+        ctx.fillText(textToDraw, jitterX, jitterY);
+        ctx.fillStyle = "rgba(255, 0, 0, 0.75)";
+        ctx.fillText(textToDraw, -jitterX, -jitterY);
+        ctx.restore();
         ctx.fillText(textToDraw, 0, 0);
+      } else {
+        // Draw fill text
+        if (style.animationStyle === "karaoke" && isWordActive) {
+          // Progressive karaoke wipe effect!
+          ctx.fillStyle = style.textColor;
+          ctx.fillText(textToDraw, 0, 0);
+
+          ctx.save();
+          if (useGradient && textGradient) {
+            ctx.fillStyle = textGradient;
+          } else {
+            ctx.fillStyle = style.activeColor;
+          }
+          const widthToClip = mWord.width * r;
+          ctx.beginPath();
+          ctx.rect(-mWord.width / 2, -fontSize, widthToClip, fontSize * 2);
+          ctx.clip();
+
+          if (outlineWidth > 0) {
+            ctx.strokeText(textToDraw, 0, 0);
+          }
+          ctx.fillText(textToDraw, 0, 0);
+          ctx.restore();
+        } else {
+          ctx.fillText(textToDraw, 0, 0);
+        }
+
+        // Underline Pop line drawing
+        if (style.animationStyle === "underlinePop" && isWordActive) {
+          ctx.save();
+          const popFactor = 1 + 0.15 * Math.sin(r * Math.PI);
+          ctx.scale(popFactor, popFactor);
+          ctx.strokeStyle = style.activeColor;
+          ctx.lineWidth = 3 * scale;
+          ctx.beginPath();
+          ctx.moveTo(-mWord.width / 2, fontSize * 0.6);
+          ctx.lineTo(mWord.width / 2, fontSize * 0.6);
+          ctx.stroke();
+          ctx.restore();
+        }
       }
 
       ctx.restore();

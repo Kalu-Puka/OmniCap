@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { get, set } from "idb-keyval";
 
-import { CaptionSegment, CaptionStyle, AspectRatio, ModelSizeOption } from "./types";
+import { CaptionSegment, CaptionStyle, AspectRatio, ModelSizeOption, CustomPreset } from "./types";
 import { extractAudioFromArrayBuffer } from "./utils/audioExtractor";
 import {
   generateWordTimings,
@@ -89,6 +89,50 @@ export default function App() {
 
   // UI Panels
   const [activeTab, setActiveTab] = useState<"editor" | "style" | "presets" | "download">("editor");
+  const [toast, setToast] = useState<string>("");
+  const [customPresets, setCustomPresets] = useState<CustomPreset[]>([]);
+  const [newPresetName, setNewPresetName] = useState<string>("");
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+  };
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => {
+      setToast("");
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  const handleSaveCustomPreset = async () => {
+    if (!newPresetName.trim()) {
+      showToast("⚠️ Please enter a style name!");
+      return;
+    }
+    const nameExists = customPresets.some(p => p.name.toLowerCase() === newPresetName.trim().toLowerCase());
+    if (nameExists) {
+      showToast("⚠️ A style with that name already exists!");
+      return;
+    }
+    const newPreset: CustomPreset = {
+      id: `custom_preset_${Date.now()}`,
+      name: newPresetName.trim(),
+      style: { ...style }
+    };
+    const updated = [...customPresets, newPreset];
+    setCustomPresets(updated);
+    setNewPresetName("");
+    await set("omnicap_user_presets", updated);
+    showToast(`Saved style as '${newPreset.name}'!`);
+  };
+
+  const handleDeleteCustomPreset = async (id: string, name: string) => {
+    const updated = customPresets.filter(p => p.id !== id);
+    setCustomPresets(updated);
+    await set("omnicap_user_presets", updated);
+    showToast(`Deleted style '${name}'.`);
+  };
 
   // DOM / Audio element references
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -109,15 +153,44 @@ export default function App() {
 
       const savedCrop = await get<"crop" | "letterbox">("omnicap_crop");
       if (savedCrop) setCropMode(savedCrop);
+
+      const savedCustomPresets = await get<CustomPreset[]>("omnicap_user_presets");
+      if (savedCustomPresets) setCustomPresets(savedCustomPresets);
     }
     loadSavedState().catch(console.error);
   }, []);
+
+  const ensureActiveCaptionOnStyleChange = () => {
+    const video = videoRef.current;
+    if (!video || segments.length === 0) return;
+    
+    const currTime = video.currentTime;
+    const active = segments.find(s => currTime >= s.start && currTime <= s.end);
+    if (active) return; // already active caption visible
+    
+    // Find next segment starting after playhead, or fall back to the first segment
+    let targetSeg = segments.find(s => s.start > currTime);
+    if (!targetSeg) {
+      targetSeg = segments[0];
+    }
+    
+    // Seek to target segment
+    video.currentTime = targetSeg.start;
+    setCurrentTime(targetSeg.start);
+    
+    // Force preview redraw
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    animationFrameRef.current = requestAnimationFrame(runPreviewLoop);
+  };
 
   // Save styles to DB upon edits
   const updateStyle = (newStyle: Partial<CaptionStyle>) => {
     const updated = { ...style, ...newStyle };
     setStyle(updated);
     set("omnicap_style", updated).catch(console.error);
+    setTimeout(() => {
+      ensureActiveCaptionOnStyleChange();
+    }, 0);
   };
 
   const handleProToggle = (val: boolean) => {
@@ -530,6 +603,22 @@ export default function App() {
     }
   };
 
+  const getSafeMimeType = (name: string, type: string): string => {
+    if (type && type.startsWith("video/")) {
+      return type;
+    }
+    const ext = name.split(".").pop()?.toLowerCase() || "";
+    const map: Record<string, string> = {
+      mp4: "video/mp4",
+      mov: "video/quicktime",
+      webm: "video/webm",
+      mkv: "video/x-matroska",
+      avi: "video/x-msvideo",
+      "3gp": "video/3gpp"
+    };
+    return map[ext] || "video/mp4";
+  };
+
   const setupUploadedVideo = async (file: File) => {
     setErrorMsg("");
     try {
@@ -541,7 +630,8 @@ export default function App() {
         URL.revokeObjectURL(videoUrl);
       }
       
-      const blob = new Blob([bytes], { type: file.type });
+      const safeType = getSafeMimeType(file.name, file.type);
+      const blob = new Blob([bytes], { type: safeType });
       setVideoUrl(URL.createObjectURL(blob));
     } catch (err: any) {
       console.error("Failed to read selected video:", err);
@@ -698,7 +788,7 @@ export default function App() {
   // 7. Full-stack translation helper (Sinhala to English via Gemini)
   const handleTranslateAllWithGemini = async () => {
     if (!isPro) {
-      alert("👑 Pro Feature: Please enable Pro Mode in the top header to translate using Gemini AI!");
+      showToast("👑 Upgrade to Pro Mode in the top header to translate using Gemini AI!");
       return;
     }
 
@@ -759,7 +849,8 @@ export default function App() {
 
     try {
       // Reconstruct safe File from memory cached videoBytes to bypass any stale/revoked OS-level read grants
-      const safeVideoFile = new File([videoBytes], videoFile.name, { type: videoFile.type });
+      const safeType = getSafeMimeType(videoFile.name, videoFile.type);
+      const safeVideoFile = new File([videoBytes], videoFile.name, { type: safeType });
 
       const blob = await exportVideoClientSide({
         videoFile: safeVideoFile,
@@ -1077,13 +1168,26 @@ export default function App() {
                   playsInline
                   onLoadedMetadata={handleVideoLoadMetadata}
                   onTimeUpdate={runPreviewLoop}
+                  onError={(e) => {
+                    const errCode = videoRef.current?.error?.code;
+                    const errMessage = videoRef.current?.error?.message || "";
+                    console.error("Video player native load error:", errCode, errMessage);
+                    setErrorMsg(`The browser's native player failed to load this video file. Error code: ${errCode || "Unknown"}. Message: ${errMessage || "Make sure this format/codec is supported by your browser."}`);
+                  }}
                 />
               )}
 
               {/* LEFT HALF: THE VIDEO CANVAS LIVE PLAYER */}
               <div className="flex-1 flex flex-col space-y-4 max-w-2xl mx-auto w-full">
                 {/* Visual Viewport Stage Box */}
-                <div className="relative bento-card overflow-hidden aspect-video flex items-center justify-center p-3 shadow-2xl">
+                <div className="relative bento-card overflow-hidden aspect-video flex items-center justify-center p-3 shadow-2xl bg-black">
+                  {errorMsg && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-6 bg-zinc-950/95 text-center space-y-4 z-10 rounded-2xl border border-red-500/20">
+                      <span className="text-3xl">⚠️</span>
+                      <p className="text-sm font-bold text-red-400">Media Playback Failure</p>
+                      <p className="text-xs text-zinc-400 max-w-md leading-relaxed">{errorMsg}</p>
+                    </div>
+                  )}
                   <canvas
                     ref={previewCanvasRef}
                     width={videoWidth || 640}
@@ -1182,7 +1286,7 @@ export default function App() {
                       onClick={() => {
                         const hasTrans = segments.some((s) => s.translatedText);
                         if (!hasTrans) {
-                          alert("No translation found! Click 'Translate with Gemini' in the editor panel first.");
+                          showToast("⚠️ No translation found! Run the Gemini Translator first.");
                           return;
                         }
                         setShowTranslation(true);
@@ -1412,6 +1516,31 @@ export default function App() {
                   {/* TAB 2: FINE-GRAINED CAPTION STYLING OPTIONS */}
                   {activeTab === "style" && (
                     <div className="space-y-5">
+                      {/* Live Typography Proof Swatch */}
+                      <div className="bg-[#0c0d12] border border-[#262930] rounded-2xl p-6 flex flex-col items-center justify-center space-y-2 relative overflow-hidden min-h-[110px] shadow-inner">
+                        <div className="absolute top-2.5 left-3 text-[9px] uppercase font-extrabold tracking-widest text-zinc-500">Live Typography Proof</div>
+                        <div
+                          style={{
+                            fontFamily: style.fontFamily,
+                            fontSize: "20px",
+                            letterSpacing: `${style.letterSpacing}px`,
+                            lineHeight: style.lineHeight,
+                            textTransform: style.textTransform as any,
+                            color: style.textColor,
+                            fontWeight: "bold",
+                            textShadow: style.outlineWidth > 0 
+                              ? `-${style.outlineWidth}px -${style.outlineWidth}px 0 ${style.outlineColor}, ${style.outlineWidth}px -${style.outlineWidth}px 0 ${style.outlineColor}, -${style.outlineWidth}px ${style.outlineWidth}px 0 ${style.outlineColor}, ${style.outlineWidth}px ${style.outlineWidth}px 0 ${style.outlineColor}`
+                              : "none",
+                            padding: style.background === "pill" ? "6px 14px" : style.background === "bar" ? "4px 20px" : "4px 8px",
+                            borderRadius: style.background === "pill" ? "50px" : style.background === "bar" ? "0px" : "4px",
+                            backgroundColor: style.background !== "none" ? `${style.backgroundColor}${Math.round(style.backgroundOpacity * 255).toString(16).padStart(2, '0')}` : "transparent"
+                          }}
+                          className="text-center transition-all duration-200"
+                        >
+                          OmniCap සිංහල Captions
+                        </div>
+                      </div>
+
                       {/* Typography Grid */}
                       <div className="bg-[#0a0b0d]/50 border border-[#262930] rounded-2xl p-4.5 space-y-4 shadow-sm">
                         <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">
@@ -1713,7 +1842,7 @@ export default function App() {
                             key={preset.name}
                             onClick={() => {
                               updateStyle(preset.style);
-                              alert(`Applied '${preset.name}' style configuration successfully!`);
+                              showToast(`Applied '${preset.name}' preset style!`);
                             }}
                             className="text-left p-4.5 bg-[#0a0b0d]/60 border border-[#262930] hover:border-yellow-400 rounded-2xl hover:bg-[#16181d] transition-all duration-300 shadow-sm space-y-1.5 group"
                           >
@@ -1723,6 +1852,74 @@ export default function App() {
                             <p className="text-xs text-zinc-500">{preset.description}</p>
                           </button>
                         ))}
+                      </div>
+
+                      {/* CUSTOM PERSISTENT USER-SAVED PRESETS */}
+                      <div className="border-t border-[#262930] pt-5 mt-6 space-y-4">
+                        <div className="flex items-center space-x-2">
+                          <FolderOpen size={15} className="text-yellow-400" />
+                          <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider">My Saved Styles</span>
+                        </div>
+
+                        {/* Save current style control input */}
+                        <div className="bg-[#0a0b0d]/40 border border-[#262930] p-4 rounded-2xl space-y-3 shadow-inner">
+                          <label className="text-[10px] font-bold text-zinc-500 block uppercase tracking-wider">Save Current Style Configuration</label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="E.g., My Reels Gold Style..."
+                              value={newPresetName}
+                              onChange={(e) => setNewPresetName(e.target.value)}
+                              className="flex-1 bg-[#16181d] border border-[#262930] hover:border-[#32353f] rounded-xl px-3.5 py-2 text-xs font-medium text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-yellow-400 focus:ring-1 focus:ring-yellow-400/20"
+                            />
+                            <button
+                              onClick={handleSaveCustomPreset}
+                              className="bg-yellow-400 hover:bg-yellow-500 text-black font-extrabold text-xs px-4 py-2 rounded-xl transition-all shadow-md shrink-0 flex items-center space-x-1"
+                            >
+                              <Plus size={14} className="stroke-[2.5]" />
+                              <span>Save</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Custom presets list */}
+                        <div className="space-y-2.5">
+                          {customPresets.length === 0 ? (
+                            <div className="text-center py-6 bg-[#0a0b0d]/20 border border-[#262930]/40 rounded-2xl text-xs text-zinc-500 italic">
+                              No custom styles saved yet. Enter a name above to save your current setup!
+                            </div>
+                          ) : (
+                            customPresets.map((preset) => (
+                              <div
+                                key={preset.id}
+                                className="flex items-center justify-between p-3.5 bg-[#0c0d12] border border-[#262930] rounded-2xl hover:border-yellow-400/30 hover:bg-[#16181d] transition-all duration-300 shadow-sm"
+                              >
+                                <button
+                                  onClick={() => {
+                                    updateStyle(preset.style);
+                                    showToast(`Applied '${preset.name}' custom style!`);
+                                  }}
+                                  className="flex-1 text-left"
+                                >
+                                  <div className="text-xs font-extrabold text-zinc-200 hover:text-yellow-400 transition-colors">
+                                    {preset.name}
+                                  </div>
+                                  <div className="text-[10px] text-zinc-500 font-mono mt-0.5">
+                                    Font: {preset.style.fontFamily} • Size: {preset.style.fontSize}px • Anim: {preset.style.animationStyle}
+                                  </div>
+                                </button>
+                                
+                                <button
+                                  onClick={() => handleDeleteCustomPreset(preset.id, preset.name)}
+                                  className="p-2 hover:bg-[#262930] text-zinc-500 hover:text-red-400 rounded-xl transition-colors shrink-0"
+                                  title="Delete custom style"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            ))
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1930,6 +2127,22 @@ export default function App() {
           Whisper is a trademark of OpenAI. This application runs WebAssembly models compiled for ONNX runtime.
         </div>
       </footer>
+
+      {/* Floating Toast Notification */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            key="global-toast"
+            initial={{ opacity: 0, y: 50, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            className="fixed bottom-6 right-6 z-[9999] bg-[#16181d] border border-yellow-400/40 text-zinc-100 text-xs font-bold py-3.5 px-5 rounded-2xl shadow-2xl flex items-center space-x-3 max-w-sm backdrop-blur-md"
+          >
+            <div className="w-2.5 h-2.5 rounded-full bg-yellow-400 animate-pulse shrink-0" />
+            <span>{toast}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

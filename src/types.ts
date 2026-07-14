@@ -26,7 +26,11 @@ export type AnimationStyle =
   | 'slide'
   | 'typewriter'
   | 'zoom'
-  | 'centeredWord';
+  | 'centeredWord'
+  | 'underlinePop'
+  | 'neonGlow'
+  | 'glitch'
+  | 'lightSweep';
 
 export type BackgroundStyle = 'none' | 'pill' | 'bar';
 export type TextTransformStyle = 'none' | 'uppercase';
@@ -52,6 +56,7 @@ export interface CaptionStyle {
   position: PositionPreset;
   verticalOffset: number; // custom slider offset
   animationStyle: AnimationStyle;
+  textFillType?: "solid" | "gradient-gold" | "gradient-chrome";
 }
 
 export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:5';
@@ -60,6 +65,13 @@ export interface StylePreset {
   name: string;
   description: string;
   style: Partial<CaptionStyle>;
+  isPro?: boolean;
+}
+
+export interface CustomPreset {
+  id: string;
+  name: string;
+  style: CaptionStyle;
 }
 
 export interface ModelSizeOption {
