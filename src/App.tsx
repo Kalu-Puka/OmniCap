@@ -25,7 +25,7 @@ import {
 import { get, set } from "idb-keyval";
 
 import { CaptionSegment, CaptionStyle, AspectRatio, ModelSizeOption } from "./types";
-import { extractAudioFromVideo } from "./utils/audioExtractor";
+import { extractAudioFromArrayBuffer } from "./utils/audioExtractor";
 import {
   generateWordTimings,
   exportToSRT,
@@ -44,6 +44,7 @@ export default function App() {
 
   // Core Data State
   const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoBytes, setVideoBytes] = useState<ArrayBuffer | null>(null);
   const [videoUrl, setVideoUrl] = useState<string>("");
   const [videoDuration, setVideoDuration] = useState<number>(0);
   const [videoWidth, setVideoWidth] = useState<number>(640);
@@ -245,13 +246,13 @@ export default function App() {
 
   // 3. Audio Extraction and Whisper Trigger Sequence
   const handleStartCaptioning = async () => {
-    if (!videoFile) return;
+    if (!videoBytes || !videoFile) return;
     setErrorMsg("");
     setStep("extracting");
 
     try {
       // Step A: Extract audio track to Float32Array at 16kHz mono natively in browser
-      const rawAudio = await extractAudioFromVideo(videoFile, (p) => {
+      const rawAudio = await extractAudioFromArrayBuffer(videoBytes, (p) => {
         setExtractionProgress(p);
       });
 
@@ -546,9 +547,29 @@ export default function App() {
     }
   };
 
-  const setupUploadedVideo = (file: File) => {
-    setVideoFile(file);
-    setVideoUrl(URL.createObjectURL(file));
+  const setupUploadedVideo = async (file: File) => {
+    setErrorMsg("");
+    try {
+      const bytes = await file.arrayBuffer();
+      setVideoBytes(bytes);
+      setVideoFile(file);
+      
+      if (videoUrl) {
+        URL.revokeObjectURL(videoUrl);
+      }
+      
+      const blob = new Blob([bytes], { type: file.type });
+      setVideoUrl(URL.createObjectURL(blob));
+    } catch (err: any) {
+      console.error("Failed to read selected video:", err);
+      setErrorMsg("Couldn't read the selected video — please try selecting it again, or pick a smaller/different file");
+      setVideoBytes(null);
+      setVideoFile(null);
+      if (videoUrl) {
+        URL.revokeObjectURL(videoUrl);
+      }
+      setVideoUrl("");
+    }
   };
 
   // 6. Timeline Subtitle Editing Controls
@@ -734,7 +755,7 @@ export default function App() {
 
   // 8. Client-side Video Export Pipeline
   const handleExportVideo = async () => {
-    if (!videoFile) return;
+    if (!videoBytes || !videoFile) return;
 
     // Ensure all fonts are loaded before starting video export
     if (typeof document !== "undefined" && document.fonts && style.fontFamily) {
@@ -754,8 +775,11 @@ export default function App() {
     setExportedBlob(null);
 
     try {
+      // Reconstruct safe File from memory cached videoBytes to bypass any stale/revoked OS-level read grants
+      const safeVideoFile = new File([videoBytes], videoFile.name, { type: videoFile.type });
+
       const blob = await exportVideoClientSide({
-        videoFile,
+        videoFile: safeVideoFile,
         segments,
         style,
         aspectRatio,

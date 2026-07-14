@@ -23,14 +23,10 @@ function loadFFmpegScript(): Promise<any> {
  * Extracts and resamples audio from a video file entirely in the browser.
  * Resamples to 16000Hz mono Float32Array (Whisper's required input format).
  */
-export async function extractAudioFromVideo(
-  videoFile: File,
+export async function extractAudioFromArrayBuffer(
+  arrayBuffer: ArrayBuffer,
   onProgress: (progress: number) => void
 ): Promise<Float32Array> {
-  onProgress(10); // Started reading file
-
-  // Read video file as ArrayBuffer
-  const arrayBuffer = await videoFile.arrayBuffer();
   onProgress(30); // File read into memory, starting native decode
 
   const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
