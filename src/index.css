@@ -1,0 +1,56 @@
+@import url('https://fonts.googleapis.com/css2?family=Abhaya+Libre:wght@500;700;800&family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+Sinhala:wght@400;600;800&family=Noto+Serif+Sinhala:wght@400;700&family=Space+Grotesk:wght@500;700&family=Yatra+One&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Noto Sans Sinhala", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+body {
+  background-color: #0a0b0d;
+  color: #f4f4f5;
+  font-family: var(--font-sans);
+  background-image: 
+    radial-gradient(circle at 50% 0%, rgba(250, 204, 21, 0.04) 0%, transparent 60%),
+    radial-gradient(circle at 100% 100%, rgba(139, 92, 246, 0.02) 0%, transparent 50%),
+    radial-gradient(circle at 0% 100%, rgba(244, 63, 94, 0.02) 0%, transparent 50%);
+  background-attachment: fixed;
+}
+
+/* Custom bento styling rules */
+.bento-card {
+  background-color: #16181d;
+  border: 1px solid #262930;
+  border-radius: 1.5rem; /* 24px (rounded-3xl) */
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.03);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bento-card:hover {
+  border-color: rgba(250, 204, 21, 0.25);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 20px rgba(250, 204, 21, 0.03);
+  transform: translateY(-2px);
+}
+
+.bento-card-no-hover {
+  background-color: #16181d;
+  border: 1px solid #262930;
+  border-radius: 1.5rem;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.03);
+}
+
+.bento-input {
+  background-color: #0a0b0d;
+  border: 1px solid #262930;
+  border-radius: 0.75rem;
+  color: #f4f4f5;
+  transition: all 0.2s ease;
+}
+
+.bento-input:focus {
+  border-color: #facc15;
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.2);
+  outline: none;
+}
+
+

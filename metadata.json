@@ -1,0 +1,6 @@
+{
+  "name": "OmniCap",
+  "description": "Client-side Sinhala video auto-caption generator using in-browser speech-to-text and WebCodecs video rendering.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
