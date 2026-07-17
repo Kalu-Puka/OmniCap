@@ -291,7 +291,7 @@ export default function App() {
 
     try {
       const SAMPLE_RATE = 16000;
-      const CHUNK_DURATION_SEC = 60; // 1 minute (prevents long transcription response latency and timeouts)
+      const CHUNK_DURATION_SEC = 25; // 25 seconds (prevents long transcription response latency and timeouts)
       const OVERLAP_SEC = 2; // 2 seconds overlap
 
       const CHUNK_SIZE = CHUNK_DURATION_SEC * SAMPLE_RATE;
@@ -346,17 +346,17 @@ export default function App() {
         const base64Data = await readBlobAsBase64(wavBlob);
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 50000);
+        const timeoutId = setTimeout(() => controller.abort(), 90000);
 
         let elapsedSeconds = 0;
         const progressInterval = setInterval(() => {
           elapsedSeconds++;
           let message = `Transcribing audio segment ${i + 1} of ${chunks.length} via Gemini AI...`;
-          if (elapsedSeconds >= 30) {
+          if (elapsedSeconds >= 50) {
             message = "This is taking unusually long. If it doesn't finish soon, it may time out and you can retry.";
-          } else if (elapsedSeconds >= 15) {
+          } else if (elapsedSeconds >= 25) {
             message = "Taking a bit longer than usual, please wait...";
-          } else if (elapsedSeconds >= 5) {
+          } else if (elapsedSeconds >= 8) {
             message = "Still working — Gemini is processing your audio...";
           }
           setTranscriptionStatus(prev => ({

@@ -198,13 +198,13 @@ ${JSON.stringify(segmentsInput, null, 2)}`,
 
       let response;
       try {
-        response = await callWithRetry("gemini-3.5-flash");
+        response = await callWithRetry("gemini-2.5-flash");
       } catch (firstError: any) {
-        console.warn("[OmniCap Server] Primary model gemini-3.5-flash failed completely. Trying fallback model gemini-2.5-flash...");
+        console.warn("[OmniCap Server] Primary model gemini-2.5-flash failed completely. Trying fallback model gemini-3.5-flash...");
         try {
-          // Attempt once more against gemini-2.5-flash as the fallback (regardless of error type)
+          // Attempt once more against gemini-3.5-flash as the fallback (regardless of error type)
           response = await client.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: "gemini-3.5-flash",
             contents: [
               audioPart,
               {
@@ -232,7 +232,7 @@ ${JSON.stringify(segmentsInput, null, 2)}`,
             }
           });
         } catch (fallbackError: any) {
-          console.error("[OmniCap Server] Fallback model gemini-2.5-flash also failed:", fallbackError);
+          console.error("[OmniCap Server] Fallback model gemini-3.5-flash also failed:", fallbackError);
           throw fallbackError;
         }
       }
